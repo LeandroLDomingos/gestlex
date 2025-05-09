@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models\Api;
+namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,8 +21,13 @@ class Contact extends Model
         'marital_status',
         'profession',
         'zip_code',
-        'address_number',
-        'address_complement',
+        'address',
+        'neighborhood',
+        'number',
+        'complement',
+        'city',
+        'state',
+        'country',
         'fantasy_name',
         'cpf_cnpj',
         'business_name',

@@ -29,8 +29,8 @@ class ContactResource extends JsonResource
             'tax_city' => $this->tax_city,
             'administrator_id' => $this->administrator_id,
             'zip_code' => $this->zip_code,
-            'address_number' => $this->address_number,
-            'address_complement' => $this->address_complement,
+            'number' => $this->number,
+            'complement' => $this->complement,
             'emails' => ContactEmailsResource::collection($this->whenLoaded('emails')),
             'phones' => ContactPhonesResource::collection($this->whenLoaded('phones')),
 

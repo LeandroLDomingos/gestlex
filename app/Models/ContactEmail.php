@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Models\Api;
+namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ContactPhone extends Model
+class ContactEmail extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['contact_id', 'phone'];
+    protected $fillable = ['contact_id', 'email'];
 
     /**
      * Relacionamento com Contact.

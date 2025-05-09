@@ -18,8 +18,8 @@ class CreateContactDTO
         public readonly ?string $tax_city = null,
         public readonly ?int $administrator_id,
         public readonly ?string $zip_code = null,
-        public readonly ?string $address_number = null,
-        public readonly ?string $address_complement = null,
+        public readonly ?string $number = null,
+        public readonly ?string $complement = null,
         public readonly array $emails,
         public readonly array $phones
     ){

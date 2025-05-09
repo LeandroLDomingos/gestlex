@@ -52,8 +52,8 @@ class StoreContactRequest extends FormRequest
 
             // Endereço
             'zip_code' => ['nullable', 'string', 'max:8'],
-            'address_number' => ['nullable', 'integer'],
-            'address_complement' => ['nullable', 'string', 'max:255'],
+            'number' => ['nullable', 'integer'],
+            'complement' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

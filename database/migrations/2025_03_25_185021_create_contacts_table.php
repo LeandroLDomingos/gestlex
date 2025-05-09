@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('name', 255);
             $table->string('cpf_cnpj', 20)->nullable();
             $table->string('rg', 50)->nullable(); // Somente para contatos físicos
-            $table->enum('gender', ['female', 'male'])->nullable(); // Somente para físicos
+            $table->enum('gender', ['female', 'male', 'other'])->nullable(); // Somente para físicos
             $table->string('nationality', 100)->nullable(); // Somente para físicos
             $table->enum('marital_status', ['single', 'married', 'common_law', 'divorced', 'widowed', 'separated'])->nullable();
             $table->string('profession', 100)->nullable(); // Somente para físicos
@@ -26,9 +26,14 @@ return new class extends Migration
             $table->string('tax_city', 100)->nullable(); // Somente para jurídicos
             $table->string('trade_name', 255)->nullable(); // Nome fantasia para contatos jurídicos
             $table->unsignedBigInteger('administrator_id')->nullable(); // Referência para um contato físico, se aplicável
-            $table->string('zip_code', 20)->nullable();
-            $table->string('address_number', 10)->nullable();
-            $table->string('address_complement', 255)->nullable();
+            $table->bigInteger('zip_code')->nullable();
+            $table->string('address')->nullable();
+            $table->string('neighborhood')->nullable();
+            $table->bigInteger('number')->nullable();
+            $table->string('complement')->nullable();
+            $table->string('city')->nullable();
+            $table->string('state')->nullable();
+            $table->string('country')->nullable();
             $table->timestamps();
 
             $table->foreign('administrator_id')

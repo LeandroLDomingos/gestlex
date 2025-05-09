@@ -36,4 +36,31 @@ export interface User {
     updated_at: string;
 }
 
+export type ContactType = 'physical' | 'legal'
+export type Gender = 'female' | 'male'
+export type MaritalStatus = 'single' | 'married' | 'common_law' | 'divorced' | 'widowed' | 'separated'
+
+export interface Contact {
+  id: number
+  type: ContactType
+  name: string
+  cpf_cnpj?: string
+  rg?: string
+  gender?: Gender
+  nationality?: string
+  marital_status?: MaritalStatus
+  profession?: string
+  business_activity?: string
+  tax_state?: string
+  tax_city?: string
+  trade_name?: string
+  administrator_id?: number
+  zip_code?: string
+  number?: string
+  complement?: string
+  created_at?: string
+  updated_at?: string
+}
+
+
 export type BreadcrumbItemType = BreadcrumbItem;
