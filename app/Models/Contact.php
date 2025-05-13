@@ -28,13 +28,13 @@ class Contact extends Model
         'city',
         'state',
         'country',
-        'fantasy_name',
+        'trade_name',
         'cpf_cnpj',
         'business_name',
         'business_activity',
         'tax_state',
         'tax_city',
-        'admin_contact_id',
+        'administrator_id',
     ];
 
     /**
@@ -55,25 +55,11 @@ class Contact extends Model
         return $this->hasMany(ContactPhone::class, 'contact_id');
     }
 
-    /**
-     * Retorna todos os e-mails do contato como array.
-     */
-    public function getAllEmailsAttribute(): array
+
+    public function adminContact()
     {
-        return $this->emails()->pluck('email')->toArray();
+        return $this->belongsTo(Contact::class, 'administrator_id');
     }
 
-    /**
-     * Retorna todos os telefones do contato como array.
-     */
-    public function getAllPhonesAttribute(): array
-    {
-        return $this->phones()->pluck('phone')->toArray();
-    }
-
-    public function processes(): BelongsToMany
-    {
-        return $this->belongsToMany(Process::class, 'contact_processes');
-    }
 
 }

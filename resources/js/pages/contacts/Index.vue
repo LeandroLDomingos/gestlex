@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Pencil, ChevronsUpDown } from 'lucide-vue-next'
+import { Pencil, ChevronsUpDown, Captions } from 'lucide-vue-next'
 
 // Componentes e utilitários do TanStack Vue Table
 import {
@@ -156,6 +156,31 @@ const columns = [
             return h('div', { class: 'capitalize' }, typeNames)
         },
     }),
+    // Coluna ações
+    columnHelper.display({
+        id: 'actions',
+        header: () => h('div', { class: 'text-center' }, ''),
+        cell: ({ row }) => {
+            const userId = row.original.id
+            return h(
+                Link,
+                { href: route('contacts.show', userId) },
+                {
+                    default: () =>
+                        h(
+                            Button,
+                            {
+                                variant: 'ghost',
+                                class: 'p-0 inline-flex items-center justify-center',
+                                type: 'button',
+                            },
+                            () => h(Captions, { class: 'w-4 h-4' })
+                        ),
+                }
+            )
+        },
+    })
+
 
 ]
 
