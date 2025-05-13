@@ -8,13 +8,13 @@ import Input from '@/components/ui/input/Input.vue'
 import InputError from '@/components/InputError.vue'
 import Button from '@/components/ui/button/Button.vue'
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectGroup,
-  SelectLabel,
-  SelectItem,
+    Select,
+    SelectTrigger,
+    SelectValue,
+    SelectContent,
+    SelectGroup,
+    SelectLabel,
+    SelectItem,
 } from '@/components/ui/select'
 import countries from 'i18n-iso-countries'
 import pt from 'i18n-iso-countries/langs/pt.json'
@@ -24,8 +24,8 @@ countries.registerLocale(pt)
 
 // Props vindos do controller
 const props = defineProps<{
-  contacts: Contact[]
-  contact: Contact
+    contacts: Contact[]
+    contact: Contact
 }>()
 
 // Aba ativa inicial (PF ou PJ)
@@ -33,130 +33,141 @@ const activeTab = ref<'physical' | 'legal'>(props.contact.type as any)
 
 // Breadcrumbs para o layout
 const breadcrumbs: BreadcrumbItem[] = [
-  { title: 'Contatos', href: '/contacts' },
-  { title: 'Editar Contato', href: `/contacts/${props.contact.id}/edit` },
+    { title: 'Contatos', href: '/contacts' },
+    { title: 'Editar Contato', href: `/contacts/${props.contact.id}/edit` },
 ]
 
 // Opções de administrador (dropdown)
 const adminOptions = computed(() =>
-  props.contacts.map(c => ({ value: c.id, label: c.name }))
+    props.contacts.map(c => ({ value: c.id, label: c.name }))
 )
 
 // Formulário Pessoa Física (pré-populado)
 const formPF = useForm({
-  type:           'physical',
-  name:           props.contact.name,
-  cpf_cnpj:       props.contact.cpf_cnpj,
-  rg:             props.contact.rg || '',
-  gender:         props.contact.gender || '',
-  nationality:    props.contact.nationality || 'BR',
-  marital_status: props.contact.marital_status || '',
-  profession:     props.contact.profession || '',
-  zip_code:       props.contact.zip_code || '',
-  address:        props.contact.address || '',
-  neighborhood:   props.contact.neighborhood || '',
-  city:           props.contact.city || '',
-  state:          props.contact.state || '',
-  complement:     props.contact.complement || '',
-  number:         props.contact.number || '',
-  administrator_id: props.contact.administrator_id || '',
-  emails:         props.contact.emails.length ? [...props.contact.emails] : [''],
-  phones:         props.contact.phones.length ? [...props.contact.phones] : [''],
+    type: 'physical',
+    name: props.contact.name,
+    cpf_cnpj: props.contact.cpf_cnpj,
+    rg: props.contact.rg || '',
+    gender: props.contact.gender || '',
+    nationality: props.contact.nationality || 'BR',
+    marital_status: props.contact.marital_status || '',
+    profession: props.contact.profession || '',
+    zip_code: props.contact.zip_code || '',
+    address: props.contact.address || '',
+    neighborhood: props.contact.neighborhood || '',
+    city: props.contact.city || '',
+    state: props.contact.state || '',
+    complement: props.contact.complement || '',
+    number: props.contact.number || '',
+    administrator_id: props.contact.administrator_id || '',
+    emails: props.contact.emails.length
+        ? props.contact.emails.map(e => e.email)
+        : [''],
+    phones: props.contact.phones.length
+        ? props.contact.phones.map(p => p.phone)
+        : [''],
+
 })
 
 // Formulário Pessoa Jurídica (pré-populado)
 const formPJ = useForm({
-  type:              'legal',
-  trade_name:        props.contact.trade_name || '',
-  business_name:     props.contact.business_name || '',
-  cpf_cnpj:          props.contact.cpf_cnpj,
-  business_activity: props.contact.business_activity || '',
-  tax_state:         props.contact.tax_state || '',
-  tax_city:          props.contact.tax_city || '',
-  zip_code:          props.contact.zip_code || '',
-  address:           props.contact.address || '',
-  neighborhood:      props.contact.neighborhood || '',
-  city:              props.contact.city || '',
-  state:             props.contact.state || '',
-  complement:        props.contact.complement || '',
-  number:            props.contact.number || '',
-  administrator_id:  props.contact.administrator_id || '',
-  emails:            props.contact.emails.length ? [...props.contact.emails] : [''],
-  phones:            props.contact.phones.length ? [...props.contact.phones] : [''],
+    type: 'legal',
+    name: props.contact.name || '',
+    trade_name: props.contact.trade_name || '',
+    business_name: props.contact.business_name || '',
+    cpf_cnpj: props.contact.cpf_cnpj,
+    business_activity: props.contact.business_activity || '',
+    tax_state: props.contact.tax_state || '',
+    tax_city: props.contact.tax_city || '',
+    zip_code: props.contact.zip_code || '',
+    address: props.contact.address || '',
+    neighborhood: props.contact.neighborhood || '',
+    city: props.contact.city || '',
+    state: props.contact.state || '',
+    complement: props.contact.complement || '',
+    number: props.contact.number || '',
+    administrator_id: props.contact.administrator_id || '',
+    emails: props.contact.emails.length
+        ? props.contact.emails.map(e => e.email)
+        : [''],
+    phones: props.contact.phones.length
+        ? props.contact.phones.map(p => p.phone)
+        : [''],
 })
 
 // Opções de selects estáticas
 const nationalityOptions = computed(() => {
-  const list = countries.getNames('pt', { select: 'official' })
-  return Object.entries(list)
-    .map(([code, name]) => ({ code, name }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    const list = countries.getNames('pt', { select: 'official' })
+    return Object.entries(list)
+        .map(([code, name]) => ({ code, name }))
+        .sort((a, b) => a.name.localeCompare(b.name))
 })
 const genderOptions = [
-  { value: 'male',   label: 'Masculino' },
-  { value: 'female', label: 'Feminino' },
-  { value: 'other',  label: 'Outro' },
+    { value: 'male', label: 'Masculino' },
+    { value: 'female', label: 'Feminino' },
+    { value: 'other', label: 'Outro' },
 ]
 const maritalOptions = [
-  { value: 'single',   label: 'Solteiro(a)'   },
-  { value: 'married',  label: 'Casado(a)'     },
-  { value: 'divorced', label: 'Divorciado(a)' },
-  { value: 'widowed',  label: 'Viúvo(a)'      },
-  { value: 'separated',label: 'Separado(a)'   },
+    { value: 'single', label: 'Solteiro(a)' },
+    { value: 'married', label: 'Casado(a)' },
+    { value: 'divorced', label: 'Divorciado(a)' },
+    { value: 'widowed', label: 'Viúvo(a)' },
+    { value: 'separated', label: 'Separado(a)' },
 ]
 const stateOptions = [
-  { value: 'AC', label: 'Acre'       }, { value: 'AL', label: 'Alagoas' },
-  { value: 'AP', label: 'Amapá'      }, { value: 'AM', label: 'Amazonas' },
-  { value: 'BA', label: 'Bahia'      }, { value: 'CE', label: 'Ceará' },
-  { value: 'DF', label: 'Distrito Federal' },
-  { value: 'ES', label: 'Espírito Santo'  }, { value: 'GO', label: 'Goiás' },
-  { value: 'MA', label: 'Maranhão'         }, { value: 'MT', label: 'Mato Grosso' },
-  { value: 'MS', label: 'Mato Grosso do Sul' },
-  { value: 'MG', label: 'Minas Gerais'    }, { value: 'PA', label: 'Pará' },
-  { value: 'PB', label: 'Paraíba'         }, { value: 'PR', label: 'Paraná' },
-  { value: 'PE', label: 'Pernambuco'      }, { value: 'PI', label: 'Piauí' },
-  { value: 'RJ', label: 'Rio de Janeiro'  }, { value: 'RN', label: 'Rio Grande do Norte' },
-  { value: 'RS', label: 'Rio Grande do Sul' },
-  { value: 'RO', label: 'Rondônia'        }, { value: 'RR', label: 'Roraima' },
-  { value: 'SC', label: 'Santa Catarina'  }, { value: 'SP', label: 'São Paulo' },
-  { value: 'SE', label: 'Sergipe'         }, { value: 'TO', label: 'Tocantins' },
+    { value: 'AC', label: 'Acre' }, { value: 'AL', label: 'Alagoas' },
+    { value: 'AP', label: 'Amapá' }, { value: 'AM', label: 'Amazonas' },
+    { value: 'BA', label: 'Bahia' }, { value: 'CE', label: 'Ceará' },
+    { value: 'DF', label: 'Distrito Federal' },
+    { value: 'ES', label: 'Espírito Santo' }, { value: 'GO', label: 'Goiás' },
+    { value: 'MA', label: 'Maranhão' }, { value: 'MT', label: 'Mato Grosso' },
+    { value: 'MS', label: 'Mato Grosso do Sul' },
+    { value: 'MG', label: 'Minas Gerais' }, { value: 'PA', label: 'Pará' },
+    { value: 'PB', label: 'Paraíba' }, { value: 'PR', label: 'Paraná' },
+    { value: 'PE', label: 'Pernambuco' }, { value: 'PI', label: 'Piauí' },
+    { value: 'RJ', label: 'Rio de Janeiro' }, { value: 'RN', label: 'Rio Grande do Norte' },
+    { value: 'RS', label: 'Rio Grande do Sul' },
+    { value: 'RO', label: 'Rondônia' }, { value: 'RR', label: 'Roraima' },
+    { value: 'SC', label: 'Santa Catarina' }, { value: 'SP', label: 'São Paulo' },
+    { value: 'SE', label: 'Sergipe' }, { value: 'TO', label: 'Tocantins' },
 ]
 
 // Busca endereço via CEP e popula o form
 async function fetchViaCEP(cep: string, form: typeof formPF) {
-  const clean = cep.replace(/\D/g, '')
-  if (clean.length !== 8) return
-  try {
-    const { data } = await axios.get(`https://viacep.com.br/ws/${clean}/json/`)
-    if (!data.erro) {
-      form.address      = data.logradouro || ''
-      form.neighborhood = data.bairro    || ''
-      form.city         = data.localidade|| ''
-      form.state        = data.uf        || ''
-      form.complement   = data.complemento|| ''
-    }
-  } catch {}
+    const clean = cep.replace(/\D/g, '')
+    if (clean.length !== 8) return
+    try {
+        const { data } = await axios.get(`https://viacep.com.br/ws/${clean}/json/`)
+        if (!data.erro) {
+            form.address = data.logradouro || ''
+            form.neighborhood = data.bairro || ''
+            form.city = data.localidade || ''
+            form.state = data.uf || ''
+            form.complement = data.complemento || ''
+        }
+    } catch { }
 }
 watch(() => formPF.zip_code, val => fetchViaCEP(val, formPF))
 watch(() => formPJ.zip_code, val => fetchViaCEP(val, formPJ))
 
 // Adicionar / remover campos de array (emails, phones)
 function addItem(form: typeof formPF, field: 'emails' | 'phones') {
-  form[field].push('')
+    form[field].push('')
 }
 function removeItem(form: typeof formPF, field: 'emails' | 'phones', i: number) {
-  if (form[field].length > 1) form[field].splice(i, 1)
-  else form[field][0] = ''
+    if (form[field].length > 1) form[field].splice(i, 1)
+    else form[field][0] = ''
 }
 
 // Submissão (PUT para update)
 function submitPF() {
-  formPF.put(route('contacts.update', props.contact.id))
+    formPF.put(route('contacts.update', props.contact.id))
 }
 function submitPJ() {
-  formPJ.put(route('contacts.update', props.contact.id))
+    formPJ.put(route('contacts.update', props.contact.id))
 }
 </script>
+
 
 <template>
 
@@ -198,34 +209,37 @@ function submitPJ() {
                 <!-- Emails PF -->
                 <div class="space-y-2">
                     <Label>Emails</Label>
-                    <div v-for="(email, i) in formPF.emails" :key="i" class="flex items-center space-x-2">
-                        {{ email}}
+                    <div v-for="(email, i) in formPF.emails" :key="i" class="flex items-start space-x-2">
                         <div class="flex-1">
                             <Input v-model="formPF.emails[i]" placeholder="email@exemplo.com" />
-                            <!-- erro específico deste índice -->
                             <InputError :message="formPF.errors[`emails.${i}`]" />
                         </div>
-                        <Button type="button" @click="removeItem(formPF, 'emails', i)" variant="outline">
+                        <Button type="button" @click="removeItem(formPF, 'emails', i)" variant="outline" class="mt-1">
                             Remover
                         </Button>
                     </div>
-                    <Button type="button" @click="addItem(formPF, 'emails')">
+                    <Button type="button" @click="addItem(formPF, 'emails')" variant="default">
                         Adicionar Email
                     </Button>
-                    <!-- caso haja erro geral no array -->
                     <InputError :message="formPF.errors.emails" />
                 </div>
 
-                <!-- Telefones -->
+                <!-- Telefones PF -->
                 <div class="space-y-2">
                     <Label>Telefones</Label>
-                    <div v-for="(p, i) in formPF.phones" :key="i" class="flex items-center space-x-2">
-                        <Input v-model="formPF.phones[i]" placeholder="(00) 00000-0000"
-                            v-imask="{ mask: '(00) 00000-0000', unmask: true }" />
-                        <Button type="button" @click="removeItem(formPF, 'phones', i)"
-                            variant="outline">Remover</Button>
+                    <div v-for="(phone, i) in formPF.phones" :key="i" class="flex items-start space-x-2">
+                        <div class="flex-1">
+                            <Input v-model="formPF.phones[i]" placeholder="(00) 00000-0000"
+                                v-imask="{ mask: '(00) 00000-0000', unmask: true }" />
+                            <InputError :message="formPF.errors[`phones.${i}`]" />
+                        </div>
+                        <Button type="button" @click="removeItem(formPF, 'phones', i)" variant="outline" class="mt-1">
+                            Remover
+                        </Button>
                     </div>
-                    <Button type="button" @click="addItem(formPF, 'phones')">Adicionar Telefone</Button>
+                    <Button type="button" @click="addItem(formPF, 'phones')" variant="default">
+                        Adicionar Telefone
+                    </Button>
                     <InputError :message="formPF.errors.phones" />
                 </div>
 
@@ -258,7 +272,7 @@ function submitPJ() {
                                 <SelectGroup>
                                     <SelectLabel>País</SelectLabel>
                                     <SelectItem v-for="o in nationalityOptions" :key="o.code" :value="o.code">{{ o.name
-                                    }}</SelectItem>
+                                        }}</SelectItem>
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -275,7 +289,7 @@ function submitPJ() {
                                 <SelectGroup>
                                     <SelectLabel>Estado Civil</SelectLabel>
                                     <SelectItem v-for="o in maritalOptions" :key="o.value" :value="o.value">{{ o.label
-                                    }}</SelectItem>
+                                        }}</SelectItem>
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -336,9 +350,9 @@ function submitPJ() {
             <form v-else @submit.prevent="submitPJ" class="space-y-4">
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <Label for="trade_name">Nome Fantasia</Label>
-                        <Input id="trade_name" v-model="formPJ.trade_name" required />
-                        <InputError :message="formPJ.errors.trade_name" />
+                        <Label for="name">Nome Fantasia</Label>
+                        <Input id="name" v-model="formPJ.name" required />
+                        <InputError :message="formPJ.errors.name" />
                     </div>
                     <div>
                         <Label for="business_name">Razão Social</Label>
@@ -347,37 +361,41 @@ function submitPJ() {
                     </div>
                 </div>
 
-                <!-- Emails e Telefones -->
-                <div class="grid grid-cols-2 gap-4">
-                    <!-- Emails PJ -->
-                    <div class="space-y-2">
-                        <Label>Emails</Label>
-                        <div v-for="(email, i) in formPJ.emails" :key="i" class="flex items-center space-x-2">
-                            <div class="flex-1">
-                                <Input v-model="formPJ.emails[i]" placeholder="email@exemplo.com" />
-                                <InputError :message="formPJ.errors[`emails.${i}`]" />
-                            </div>
-                            <Button type="button" @click="removeItem(formPJ, 'emails', i)" variant="outline">
-                                Remover
-                            </Button>
+                <!-- Emails PJ -->
+                <div class="space-y-2">
+                    <Label>Emails</Label>
+                    <div v-for="(email, i) in formPJ.emails" :key="i" class="flex items-start space-x-2">
+                        <div class="flex-1">
+                            <Input v-model="formPJ.emails[i]" placeholder="email@exemplo.com" />
+                            <InputError :message="formPJ.errors[`emails.${i}`]" />
                         </div>
-                        <Button type="button" @click="addItem(formPJ, 'emails')">
-                            Adicionar Email
+                        <Button type="button" @click="removeItem(formPJ, 'emails', i)" variant="outline" class="mt-1">
+                            Remover
                         </Button>
-                        <InputError :message="formPJ.errors.emails" />
                     </div>
+                    <Button type="button" @click="addItem(formPJ, 'emails')" variant="default">
+                        Adicionar Email
+                    </Button>
+                    <InputError :message="formPJ.errors.emails" />
+                </div>
 
-                    <div class="space-y-2">
-                        <Label>Telefones</Label>
-                        <div v-for="(p, i) in formPJ.phones" :key="i" class="flex items-center space-x-2">
+                <!-- Telefones PJ -->
+                <div class="space-y-2">
+                    <Label>Telefones</Label>
+                    <div v-for="(phone, i) in formPJ.phones" :key="i" class="flex items-start space-x-2">
+                        <div class="flex-1">
                             <Input v-model="formPJ.phones[i]" placeholder="(00) 00000-0000"
                                 v-imask="{ mask: '(00) 00000-0000', unmask: true }" />
-                            <Button type="button" @click="removeItem(formPJ, 'phones', i)"
-                                variant="outline">Remover</Button>
+                            <InputError :message="formPJ.errors[`phones.${i}`]" />
                         </div>
-                        <Button type="button" @click="addItem(formPJ, 'phones')">Adicionar Telefone</Button>
-                        <InputError :message="formPJ.errors.phones" />
+                        <Button type="button" @click="removeItem(formPJ, 'phones', i)" variant="outline" class="mt-1">
+                            Remover
+                        </Button>
                     </div>
+                    <Button type="button" @click="addItem(formPJ, 'phones')" variant="default">
+                        Adicionar Telefone
+                    </Button>
+                    <InputError :message="formPJ.errors.phones" />
                 </div>
 
                 <div class="grid grid-cols-3 gap-4">
