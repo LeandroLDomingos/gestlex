@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContactGender;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -60,6 +61,18 @@ class Contact extends Model
     {
         return $this->belongsTo(Contact::class, 'administrator_id');
     }
+   public function getGenderLabelAttribute(): string
+    {
+        try {
+            // Usa o Enum DocumentType para obter o rótulo associado ao tipo de documento
+            return ContactGender::from($this->gender)->label();
+        } catch (\ValueError) {
+            // Retorna 'Desconhecido' caso o tipo seja inválido ou não existente
+            return 'Desconhecido';
+        }
+    }
 
+    // Campos adicionais que serão automaticamente adicionados na resposta do modelo
+    protected $appends = ['gender_label'];
 
 }

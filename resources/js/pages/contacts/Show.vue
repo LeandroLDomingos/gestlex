@@ -56,7 +56,7 @@ const deleteContact = (e: Event) => {
             <div v-if="contact.type === 'physical'" class="grid grid-cols-3 gap-4">
                 <div>
                     <Label>Gênero</Label>
-                    <Input :model-value="contact.gender" readonly />
+                    <Input :model-value="contact.gender_label" readonly />
                 </div>
                 <div>
                     <Label>Nacionalidade</Label>

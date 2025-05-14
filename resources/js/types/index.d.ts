@@ -47,6 +47,7 @@ export interface Contact {
   cpf_cnpj?: string
   rg?: string
   gender?: Gender
+  gender_label?: string
   nationality?: string
   marital_status?: MaritalStatus
   profession?: string
