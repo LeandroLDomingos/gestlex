@@ -69,6 +69,16 @@ export interface Contact {
   phones?: Phone[]
   admin_contact?: Contact
 }
+export interface Process {
+  id: string
+  title: string
+  origin: string
+  negotiated_value: number
+  description: string
+  workflow: number
+  stage: number
+  responsible: { name: string }
+}
 
 export interface Email {
   id: number

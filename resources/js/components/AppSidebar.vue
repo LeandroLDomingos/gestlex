@@ -21,7 +21,7 @@ const mainNavItems: NavItem[] = [
     },
     {
         title: 'Casos',
-        href: '/cases',
+        href: '/processes',
         icon: Signature,
     },
 ];
