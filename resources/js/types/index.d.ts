@@ -69,6 +69,7 @@ export interface Contact {
   emails?: Email[]
   phones?: Phone[]
   admin_contact?: Contact
+  date_of_birth?: string
 }
 export interface Process {
   id: string

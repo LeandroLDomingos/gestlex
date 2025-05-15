@@ -11,9 +11,19 @@ use Illuminate\Http\Request;
 
 class ContactController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
-        $contacts = Contact::get();
+        // Captura o termo de busca (se existir)
+        $search = $request->input('search', '');
+
+        // Consulta paginada, aplicando filtro de name quando houver search
+        $contacts = Contact::when($search, function ($query, $search) {
+            $query->where('name', 'LIKE', "%{$search}%");
+        })
+            ->orderBy('name')           // opcional: ordena por nome
+            ->paginate(50)              // 10 registros por página
+            ->withQueryString();        // mantém ?search=... nas URLs de paginação
+        
         return Inertia::render('contacts/Index', [
             'contacts' => $contacts,
         ]);

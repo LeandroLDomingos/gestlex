@@ -36,6 +36,7 @@ class Contact extends Model
         'tax_state',
         'tax_city',
         'administrator_id',
+        'date_of_birth',
     ];
 
     /**
