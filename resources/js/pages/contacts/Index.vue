@@ -11,6 +11,7 @@ import {
     TableRow,
 } from '@/components/ui/table'
 import type { BreadcrumbItem, Contact } from '@/types' // Supondo que suas tipagens estejam corretas
+import Button from '@/components/ui/button/Button.vue'
 
 // Props: contatos paginados vindo do servidor
 const props = defineProps<{
@@ -58,8 +59,7 @@ const sortDirection = ref<'asc' | 'desc'>(initialSortDirection as 'asc' | 'desc'
 // Mapeamento de colunas do frontend para o backend (nomes que o backend espera)
 const sortableColumns = {
     name: 'name',
-    phone: 'phone', // Ajuste se o backend espera um nome diferente, ex: 'main_phone' ou se precisa de lógica especial
-    email: 'email', // Ajuste se o backend espera um nome diferente, ex: 'main_email'
+
     date_of_birth: 'date_of_birth',
 } as const; // Use 'as const' para tipagem mais estrita das chaves
 
@@ -128,13 +128,13 @@ const tableHeaders: { key: SortableColumnKey; label: string }[] = [
 
     <Head title="Contatos" />
     <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="p-4 md:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <div class="p-4 md:p-6 rounded-lg shadow-md">
             <div class="flex justify-end mb-4">
                 <Link :href="route('contacts.create')">
-                <button
-                    class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">
+                <Button
+                    class="px-4 py-2 text-sm font-medium">
                     Criar Contato
-                </button>
+                </Button>
                 </Link>
             </div>
 
@@ -149,7 +149,7 @@ const tableHeaders: { key: SortableColumnKey; label: string }[] = [
                             </TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    <TableBody class="divide-y divide-gray-200 dark:divide-gray-700">
                         <template v-if="props.contacts && props.contacts.data.length">
                             <Link as="tr" v-for="contact in props.contacts.data" :key="contact.id"
                                 :href="route('contacts.show', contact.id)"
@@ -162,8 +162,7 @@ const tableHeaders: { key: SortableColumnKey; label: string }[] = [
                                 contact.emails?.[0]?.email || '-' }}</TableCell>
                             <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 {{ contact.date_of_birth
-                                    ? new Date(contact.date_of_birth + 'T00:00:00').toLocaleDateString('pt-BR') // Adicionar
-                                T00:00:00 para evitar problemas de fuso horário com toLocaleDateString
+                                    ? new Date(contact.date_of_birth + 'T00:00:00').toLocaleDateString('pt-BR')
                                 : '-' }}
                             </TableCell>
                             </Link>

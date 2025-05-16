@@ -24,6 +24,9 @@ class ContactController extends Controller
             ->paginate(50)              // 10 registros por página
             ->withQueryString();        // mantém ?search=... nas URLs de paginação
         
+
+        $contacts->load('emails', 'phones');
+
         return Inertia::render('contacts/Index', [
             'contacts' => $contacts,
         ]);
