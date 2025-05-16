@@ -46,6 +46,15 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+                        // AQUI É O PONTO CRÍTICO PARA AS MENSAGENS FLASH
+            'flash' => function () use ($request) {
+                return [
+                    'success' => $request->session()->get('success'),
+                    'error'   => $request->session()->get('error'),
+                    'info'    => $request->session()->get('info'),
+                    'warning' => $request->session()->get('warning'),
+                ];
+            },
             'ziggy' => [
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),

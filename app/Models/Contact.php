@@ -29,7 +29,6 @@ class Contact extends Model
         'city',
         'state',
         'country',
-        'trade_name',
         'cpf_cnpj',
         'business_name',
         'business_activity',

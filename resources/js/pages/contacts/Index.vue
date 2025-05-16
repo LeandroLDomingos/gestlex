@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue' // Adicionado computed
+import { ref, watch } from 'vue'
 import { Head, Link, router, usePage } from '@inertiajs/vue3'
-import AppLayout from '@/layouts/AppLayout.vue'
+import AppLayout from '@/layouts/AppLayout.vue' // Ajuste o caminho se o seu layout estiver em outro lugar
 import {
     Table,
     TableBody,
@@ -9,117 +9,137 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from '@/components/ui/table'
-import type { BreadcrumbItem, Contact } from '@/types' // Supondo que suas tipagens estejam corretas
-import Button from '@/components/ui/button/Button.vue'
+} from '@/components/ui/table' // Ajuste o caminho para seus componentes de UI da tabela
+import type { BreadcrumbItem, Contact, ContactPhone } from '@/types' // Adicionado ContactPhone
+import Button from '@/components/ui/button/Button.vue' // Ajuste o caminho para seu componente Button
+import Input from '@/components/ui/input/Input.vue'; // Supondo que você tenha um componente Input, ajuste o caminho
 
-// Props: contatos paginados vindo do servidor
+// Props
 const props = defineProps<{
     contacts: {
-        data: Contact[]
+        data: (Contact & { phones?: ContactPhone[] })[] // Adicionado phones à tipagem de Contact em data
         links: { url: string | null; label: string; active: boolean }[]
         meta: {
             current_page: number
             last_page: number
             per_page: number
             total: number
-            // O backend DEVE enviar os parâmetros de ordenação atuais se quiser
-            // que o estado inicial seja refletido corretamente na UI.
-            // Exemplo:
-            // path: string;
-            // query_params: Record<string, string>; // Para pegar sort_by e sort_direction
         }
     }
-    // Opcional, mas recomendado: passar os filtros atuais e parâmetros de ordenação do backend
-    // para inicializar o estado do frontend corretamente.
-    filters?: Record<string, string> // Ex: { search: '...', status: 'active' }
+    filters?: {
+        search?: string;
+    }
     sortBy?: string
     sortDirection?: 'asc' | 'desc'
 }>()
 
-// Breadcrumbs estáticos
+// Breadcrumbs
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Contatos', href: route('contacts.index') } // Usar route() para gerar URLs
+    { title: 'Contatos', href: route('contacts.index') }
 ]
 
-// --- Lógica de Ordenação ---
+// Lógica de Busca
+const searchTerm = ref(props.filters?.search || '');
+
+// Lógica de Ordenação
 const page = usePage()
-
-// Estado da ordenação:
-// Tenta inicializar com os valores passados como props (do backend) ou da URL.
-// Se não vierem como props diretas, tentamos extrair da URL via page.props.ziggy.query
-// @ts-ignore - page.props.ziggy pode não estar totalmente tipado ou disponível
-const initialSortBy = props.sortBy || page.props.ziggy?.query?.sort_by || 'name';
 // @ts-ignore
-const initialSortDirection = props.sortDirection || page.props.ziggy?.query?.sort_direction || 'asc';
+const sortColumn = ref<string>(props.sortBy || page.props.ziggy?.query?.sort_by || 'name');
+// @ts-ignore
+const sortDirection = ref<'asc' | 'desc'>((props.sortDirection || page.props.ziggy?.query?.sort_direction || 'asc') as 'asc' | 'desc');
 
-const sortColumn = ref<string>(initialSortBy)
-const sortDirection = ref<'asc' | 'desc'>(initialSortDirection as 'asc' | 'desc')
-
-// Mapeamento de colunas do frontend para o backend (nomes que o backend espera)
 const sortableColumns = {
     name: 'name',
-
     date_of_birth: 'date_of_birth',
-} as const; // Use 'as const' para tipagem mais estrita das chaves
+} as const;
 
 type SortableColumnKey = keyof typeof sortableColumns;
 
+// --- FUNÇÕES AUXILIARES ---
+const displayValue = (value: any, fallback: string = 'Não informado') => {
+    if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
+        return fallback;
+    }
+    return value;
+};
+
+const formatPhone = (value: string | null | undefined): string => {
+    if (!value) return 'Não informado'; // Se for exibir "Não informado" diretamente na tabela
+    const cleaned = String(value).replace(/\D/g, '');
+
+    if (cleaned.length === 10) {
+        return cleaned.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
+    }
+    if (cleaned.length === 11) {
+        return cleaned.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+    }
+    // Se não for um formato esperado, retorna o valor limpo ou original,
+    // ou um fallback se preferir tratar números "inválidos" de forma diferente.
+    return displayValue(value); // Ou apenas value, se não quiser o fallback "Não informado" aqui
+};
+// --- FIM DAS FUNÇÕES AUXILIARES ---
+
 const handleSort = (columnKey: SortableColumnKey) => {
     const backendColumnName = sortableColumns[columnKey];
-
     if (sortColumn.value === backendColumnName) {
         sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
     } else {
         sortColumn.value = backendColumnName
         sortDirection.value = 'asc'
     }
-    applySort()
+    applySortAndFilters()
 }
 
-const applySort = () => {
-    // Pega os query params atuais da URL para preservar filtros existentes.
+const applySortAndFilters = () => {
     // @ts-ignore
     const currentQueryParams = { ...(page.props.ziggy?.query || {}) };
-
-    // Ao ordenar, geralmente voltamos para a primeira página.
-    // Se você quiser manter a página atual, remova a linha abaixo.
     delete currentQueryParams.page;
 
+    const queryParams: Record<string, string | undefined> = {
+        ...currentQueryParams,
+        sort_by: sortColumn.value,
+        sort_direction: sortDirection.value,
+        search: searchTerm.value || undefined,
+    };
+
+    if (!queryParams.search) {
+        delete queryParams.search;
+    }
+
     router.get(
-        route('contacts.index'), // Certifique-se que 'contacts.index' é a rota correta
+        route('contacts.index'),
+        queryParams as any,
         {
-            ...currentQueryParams, // Mantém outros filtros/queries existentes
-            sort_by: sortColumn.value,
-            sort_direction: sortDirection.value,
-        },
-        {
-            preserveState: true, // Mantém o estado local do componente Vue (ex: campos de busca não relacionados à tabela)
-            preserveScroll: true, // Mantém a posição do scroll
-            replace: true,        // Evita adicionar múltiplas entradas no histórico do navegador para ordenação
-            // Opcional: Para forçar o reload dos dados da prop 'contacts'
-            // only: ['contacts'], // Descomente se `preserveState: true` não recarregar os dados como esperado
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
         }
     )
 }
 
-// Função helper para exibir ícones de ordenação
+let searchTimeout: number | undefined;
+watch(searchTerm, () => { // Removido newValue, não é usado diretamente
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        applySortAndFilters();
+    }, 300);
+});
+
 const getSortIcon = (columnKey: SortableColumnKey) => {
     const backendColumnName = sortableColumns[columnKey];
     if (sortColumn.value === backendColumnName) {
-        return sortDirection.value === 'asc' ? '🔼' : '🔽'; // Simples setas de texto
-        // Para ícones melhores, use SVGs ou uma biblioteca de ícones:
-        // return sortDirection.value === 'asc' ? '<svg>...</svg>' : '<svg>...</svg>';
+        return sortDirection.value === 'asc'
+            ? '<svg viewBox="0 0 20 20" fill="currentColor" width="1em" height="1em" class="inline-block ml-1"><path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"></path></svg>'
+            : '<svg viewBox="0 0 20 20" fill="currentColor" width="1em" height="1em" class="inline-block ml-1"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>';
     }
-    return '↕️'; // Ícone padrão para colunas ordenáveis, mas não ativas
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block ml-1 opacity-50"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>';
 }
 
-// Colunas da tabela para o template
-const tableHeaders: { key: SortableColumnKey; label: string }[] = [
-    { key: 'name', label: 'Nome' },
-    { key: 'phone', label: 'Telefone' },
-    { key: 'email', label: 'Email' },
-    { key: 'date_of_birth', label: 'Data de Nasc.' },
+const tableHeaders: { key: SortableColumnKey | string; label: string; sortable: boolean }[] = [
+    { key: 'name', label: 'Nome', sortable: true },
+    { key: 'phone', label: 'Telefone', sortable: false },
+    { key: 'email', label: 'Email', sortable: false },
+    { key: 'date_of_birth', label: 'Data de Nasc.', sortable: true },
 ];
 
 </script>
@@ -128,77 +148,134 @@ const tableHeaders: { key: SortableColumnKey; label: string }[] = [
 
     <Head title="Contatos" />
     <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="p-4 md:p-6 rounded-lg shadow-md">
-            <div class="flex justify-end mb-4">
+        <div class="p-4 md:p-6 lg:p-8 space-y-6">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+                <h1 class="text-2xl font-semibold text-gray-800 dark:text-gray-100">
+                    Lista de Contatos
+                </h1>
+                <div class="relative w-full sm:w-auto">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400 dark:text-gray-500" xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd"
+                                d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                                clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <Input type="text" v-model="searchTerm" placeholder="Buscar contatos..."
+                        class="block w-full sm:w-64 pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 sm:text-sm" />
+                </div>
                 <Link :href="route('contacts.create')">
-                <Button
-                    class="px-4 py-2 text-sm font-medium">
+                <Button variant="default" size="default">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        class="mr-2 h-4 w-4">
+                        <path d="M5 12h14" />
+                        <path d="M12 5v14" />
+                    </svg>
                     Criar Contato
                 </Button>
                 </Link>
             </div>
 
-            <div class="rounded-md border dark:border-gray-700 overflow-x-auto">
-                <Table class="min-w-full">
-                    <TableHeader class="bg-gray-50 dark:bg-gray-700">
-                        <TableRow>
-                            <TableHead v-for="header in tableHeaders" :key="header.key" @click="handleSort(header.key)"
-                                class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-150">
-                                {{ header.label }}
-                                <span class="ml-1">{{ getSortIcon(header.key) }}</span>
-                            </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody class="divide-y divide-gray-200 dark:divide-gray-700">
-                        <template v-if="props.contacts && props.contacts.data.length">
-                            <Link as="tr" v-for="contact in props.contacts.data" :key="contact.id"
-                                :href="route('contacts.show', contact.id)"
-                                class="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors duration-150">
-                            <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-200">{{
-                                contact.name }}</TableCell>
-                            <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{
-                                contact.phones?.[0]?.phone || '-' }}</TableCell>
-                            <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{
-                                contact.emails?.[0]?.email || '-' }}</TableCell>
-                            <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                {{ contact.date_of_birth
-                                    ? new Date(contact.date_of_birth + 'T00:00:00').toLocaleDateString('pt-BR')
-                                : '-' }}
-                            </TableCell>
-                            </Link>
-                        </template>
-                        <TableRow v-else>
-                            <TableCell colspan="4"
-                                class="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400 h-24">
-                                Nenhum registro encontrado.
-                            </TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
+            <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
+                <div class="overflow-x-auto">
+                    <Table class="min-w-full">
+                        <TableHeader class="bg-gray-50 dark:bg-gray-700/50">
+                            <TableRow>
+                                <TableHead v-for="header in tableHeaders" :key="header.key"
+                                    @click="header.sortable ? handleSort(header.key as SortableColumnKey) : null"
+                                    :class="[
+                                        'px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider',
+                                        header.sortable ? 'cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors duration-150' : ''
+                                    ]">
+                                    {{ header.label }}
+                                    <span v-if="header.sortable"
+                                        v-html="getSortIcon(header.key as SortableColumnKey)"></span>
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            <template v-if="props.contacts && props.contacts.data.length">
+                                <Link as="tr" v-for="contact in props.contacts.data" :key="contact.id"
+                                    :href="route('contacts.show', contact.id)"
+                                    class="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors duration-150">
+                                <TableCell
+                                    class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                                    {{ contact.name }}
+                                </TableCell>
+                                <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                    {{ formatPhone(contact.phones?.[0]?.phone) || '-' }}
+                                </TableCell>
+                                <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                    {{ contact.emails?.[0]?.email || '-' }}
+                                </TableCell>
+                                <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                    {{ contact.date_of_birth
+                                        ? new Date(contact.date_of_birth + 'T00:00:00').toLocaleDateString('pt-BR', {
+                                            day:
+                                                '2-digit', month: '2-digit', year: 'numeric'
+                                        })
+                                    : '-' }}
+                                </TableCell>
+                                </Link>
+                            </template>
+                            <TableRow v-else>
+                                <TableCell :colspan="tableHeaders.length" class="px-6 py-12 text-center">
+                                    <div
+                                        class="flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="3em" height="3em"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                            stroke-linecap="round" stroke-linejoin="round" class="mb-2 opacity-50">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <line x1="8" y1="15" x2="8" y2="15" />
+                                            <line x1="16" y1="15" x2="16" y2="15" />
+                                            <path d="M9 9a3 3 0 0 1 6 0" />
+                                        </svg>
+                                        <p class="text-lg font-medium">Nenhum contato encontrado.</p>
+                                        <p class="text-sm">
+                                            {{ searchTerm ? 'Tente refinar sua busca ou ' : 'Você pode ' }}
+                                            <Link v-if="searchTerm" :href="route('contacts.index')"
+                                                @click="searchTerm = ''"
+                                                class="text-blue-600 dark:text-blue-400 hover:underline">limpar a busca
+                                            </Link>
+                                            {{ searchTerm ? ' para ver todos os contatos, ou ' : '' }}
+                                            crie um novo contato.
+                                        </p>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        </TableBody>
+                    </Table>
+                </div>
             </div>
 
             <div v-if="props.contacts && props.contacts.links.length > 3"
-                class="flex items-center justify-center mt-6 space-x-1">
-                <template v-for="(link, index) in props.contacts.links" :key="`${link.label}-${index}`">
-                    <Link v-if="link.url" :href="link.url" v-html="link.label" :class="[
-                        'px-3 py-2 text-sm leading-4 border rounded-md transition-colors duration-150 ease-in-out',
-                        link.active
-                            ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                            : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600',
-                        { 'opacity-50 cursor-not-allowed': !link.url }
-                    ]" preserve-scroll preserve-state="replace" />
-                    <span v-else :key="`span-${link.label}-${index}`"
-                        class="px-3 py-2 text-sm leading-4 border rounded-md bg-white dark:bg-gray-700 text-gray-400 dark:text-gray-500 border-gray-300 dark:border-gray-600"
-                        v-html="link.label" />
-                </template>
+                class="flex items-center justify-center mt-6 pt-4 border-t dark:border-gray-700">
+                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Paginação">
+                    <template v-for="(link, index) in props.contacts.links" :key="`${link.label}-${index}`">
+                        <Link v-if="link.url" :href="link.url" v-html="link.label" :class="[
+                            'relative inline-flex items-center px-4 py-2 border text-sm font-medium transition-colors duration-150 ease-in-out',
+                            link.active
+                                ? 'z-10 bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700',
+                            { 'opacity-75 cursor-not-allowed': !link.url },
+                            index === 0 ? 'rounded-l-md' : '',
+                            index === props.contacts.links.length - 1 ? 'rounded-r-md' : ''
+                        ]" preserve-scroll preserve-state="replace" />
+                        <span v-else :key="`span-${link.label}-${index}`" v-html="link.label" :class="[
+                            'relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium text-gray-400 dark:text-gray-500',
+                            index === 0 ? 'rounded-l-md' : '',
+                            index === props.contacts.links.length - 1 ? 'rounded-r-md' : ''
+                        ]" />
+                    </template>
+                </nav>
             </div>
         </div>
     </AppLayout>
 </template>
 
 <style scoped>
-/* Estilos personalizados podem ser adicionados aqui, se necessário.
-   As classes do Tailwind CSS já devem fornecer uma boa base. */
 .select-none {
     user-select: none;
 }

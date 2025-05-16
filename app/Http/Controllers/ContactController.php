@@ -8,54 +8,102 @@ use Inertia\Response;
 use App\Models\ContactEmail;
 use App\Models\ContactPhone;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log; // Importar Log para registrar erros
+use Illuminate\Support\Facades\DB; // Importar DB para transações, se necessário
 
 class ContactController extends Controller
 {
     public function index(Request $request): Response
     {
-        // Captura o termo de busca (se existir)
+        $sortBy = $request->input('sort_by', 'name');
+        $sortDirection = $request->input('sort_direction', 'asc');
         $search = $request->input('search', '');
 
-        // Consulta paginada, aplicando filtro de name quando houver search
-        $contacts = Contact::when($search, function ($query, $search) {
-            $query->where('name', 'LIKE', "%{$search}%");
-        })
-            ->orderBy('name')           // opcional: ordena por nome
-            ->paginate(50)              // 10 registros por página
-            ->withQueryString();        // mantém ?search=... nas URLs de paginação
-        
+        // Colunas permitidas para ordenação. É importante validar para evitar injeção de SQL com orderByRaw.
+        $allowedSortColumns = ['name', 'date_of_birth', 'created_at', 'updated_at', 'cpf_cnpj', 'type'];
+        if (!in_array($sortBy, $allowedSortColumns)) {
+            $sortBy = 'name'; // Coluna padrão segura
+        }
+        if (!in_array(strtolower($sortDirection), ['asc', 'desc'])) {
+            $sortDirection = 'asc';
+        }
 
+        $contactsQuery = Contact::query()
+            ->when($search, function ($query, $searchTerm) {
+                $searchableFields = [
+                    'name',
+                    'cpf_cnpj',
+                    'rg',
+                    'nationality',
+                    'marital_status',
+                    'profession',
+                    'zip_code',
+                    'address',
+                    'neighborhood',
+                    'number',
+                    'complement',
+                    'city',
+                    'state',
+                    'name',
+                    'business_name',
+                    'business_activity',
+                    'tax_state',
+                    'tax_city',
+                    'gender',
+                ];
+
+                $query->where(function ($q) use ($searchTerm, $searchableFields) {
+                    foreach ($searchableFields as $field) {
+                        $q->orWhere($field, 'LIKE', "%{$searchTerm}%");
+                    }
+                    $q->orWhereHas('emails', function ($emailQuery) use ($searchTerm) {
+                        $emailQuery->where('email', 'LIKE', "%{$searchTerm}%");
+                    });
+                    $q->orWhereHas('phones', function ($phoneQuery) use ($searchTerm) {
+                        $phoneQuery->where('phone', 'LIKE', "%{$searchTerm}%");
+                    });
+                });
+            });
+
+        // Aplicar ordenação case-insensitive
+        // Certifique-se de que $sortBy é uma coluna validada para evitar injeção de SQL.
+        // A função LOWER() é comum para a maioria dos bancos SQL (MySQL, PostgreSQL, SQL Server).
+        // Para SQLite, LOWER() também funciona.
+        $contactsQuery->orderByRaw("LOWER({$sortBy}) {$sortDirection}");
+
+        $contacts = $contactsQuery->paginate(50)->withQueryString();
         $contacts->load('emails', 'phones');
 
         return Inertia::render('contacts/Index', [
             'contacts' => $contacts,
-        ]);
-    }
-    public function create(): Response
-    {
-        $contacts = Contact::where('type', 'physical')->get();
-        return Inertia::render('contacts/Create', [
-            'contacts' => $contacts,
+            'filters' => ['search' => $search],
+            'sortBy' => $sortBy,
+            'sortDirection' => $sortDirection,
         ]);
     }
 
-    /**
-     * Store a new Physical or Legal contact, along with emails and phones.
-     */
+    public function create(): Response
+    {
+        $physicalContacts = Contact::where('type', 'physical')->orderBy('name')->get(['id', 'name']);
+        return Inertia::render('contacts/Create', [
+            'contacts' => $physicalContacts,
+        ]);
+    }
+
     public function store(Request $request)
     {
-        // Validação comum
         $data = $request->validate([
             'type' => 'required|in:physical,legal',
-            'name' => 'required_if:type,physical|string|max:255',
-            'trade_name' => 'string|max:255',
-            'business_name' => 'required_if:type,legal|string|max:255',
+            'name' => 'required_if:type,physical|nullable|string|max:255',
+            'name' => 'required_if:type,legal|nullable|string|max:255',
+            'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => 'required|string|max:20|unique:contacts,cpf_cnpj',
-            'rg' => 'nullable|string|max:20|unique:contacts,cpf_cnpj',
-            'gender' => 'nullable|in:male,female,other',
-            'nationality' => 'nullable|string|max:2',
+            'rg' => 'nullable|string|max:20|unique:contacts,rg',
+            'gender' => 'nullable|in:male,female,other,prefer_not_to_say',
+            'nationality' => 'nullable|string|max:5',
             'marital_status' => 'nullable|string|max:20',
             'profession' => 'nullable|string|max:100',
+            'date_of_birth' => 'nullable|date_format:Y-m-d',
             'business_activity' => 'nullable|string|max:100',
             'tax_state' => 'nullable|string|size:2',
             'tax_city' => 'nullable|string|max:100',
@@ -65,63 +113,78 @@ class ContactController extends Controller
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|size:2',
             'complement' => 'nullable|string|max:100',
-            'number' => 'nullable|string|max:10',
+            'number' => 'nullable|string|max:20',
             'administrator_id' => 'nullable|exists:contacts,id',
-            'emails' => 'array',
+            'emails' => 'present|array',
             'emails.*' => 'nullable|email|max:255',
-            'phones' => 'array',
+            'phones' => 'present|array',
             'phones.*' => 'nullable|string|max:20',
         ]);
-        // Cria o contato principal
-        $contact = Contact::create([
-            'type' => $data['type'],
-            'name' => $data['type'] === 'physical' ? $data['name'] : $data['trade_name'],
-            'cpf_cnpj' => $data['cpf_cnpj'],
-            'rg' => $data['rg'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'nationality' => $data['nationality'] ?? null,
-            'marital_status' => $data['marital_status'] ?? null,
-            'profession' => $data['profession'] ?? null,
-            'business_activity' => $data['business_activity'] ?? null,
-            'tax_state' => $data['tax_state'] ?? null,
-            'tax_city' => $data['tax_city'] ?? null,
-            'zip_code' => $data['zip_code'] ?? null,
-            'address' => $data['address'] ?? null,
-            'neighborhood' => $data['neighborhood'] ?? null,
-            'city' => $data['city'] ?? null,
-            'state' => $data['state'] ?? null,
-            'complement' => $data['complement'] ?? null,
-            'number' => $data['number'] ?? null,
-            'trade_name' => $data['trade_name'] ?? null,
-            'administrator_id' => $data['administrator_id'] ?? null,
-        ]);
 
-        // Persistir emails
-        if (!empty($data['emails'])) {
-            foreach ($data['emails'] as $email) {
-                if ($email) {
-                    ContactEmail::create([
-                        'contact_id' => $contact->id,
-                        'email' => $email,
-                    ]);
+        DB::beginTransaction();
+
+        try {
+            $contactData = [
+                'type' => $data['type'],
+                'cpf_cnpj' => preg_replace('/\D/', '', $data['cpf_cnpj']),
+                'rg' => isset($data['rg']) ? preg_replace('/\D/', '', $data['rg']) : null,
+                'gender' => $data['gender'] ?? null,
+                'nationality' => $data['nationality'] ?? null,
+                'marital_status' => $data['marital_status'] ?? null,
+                'profession' => $data['profession'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
+                'business_activity' => $data['business_activity'] ?? null,
+                'tax_state' => $data['tax_state'] ?? null,
+                'tax_city' => $data['tax_city'] ?? null,
+                'zip_code' => isset($data['zip_code']) ? preg_replace('/\D/', '', $data['zip_code']) : null,
+                'address' => $data['address'] ?? null,
+                'neighborhood' => $data['neighborhood'] ?? null,
+                'city' => $data['city'] ?? null,
+                'state' => $data['state'] ?? null,
+                'complement' => $data['complement'] ?? null,
+                'number' => $data['number'] ?? null,
+                'administrator_id' => $data['administrator_id'] ?? null,
+            ];
+
+            if ($data['type'] === 'physical') {
+                $contactData['name'] = $data['name'];
+            } else {
+                $contactData['name'] = $data['name'];
+                $contactData['business_name'] = $data['business_name'];
+            }
+
+            $contact = Contact::create($contactData);
+
+            if (!empty($data['emails'])) {
+                foreach ($data['emails'] as $email) {
+                    if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        $contact->emails()->create(['email' => $email]);
+                    }
                 }
             }
-        }
 
-        // Persistir telefones
-        if (!empty($data['phones'])) {
-            foreach ($data['phones'] as $phone) {
-                if ($phone) {
-                    ContactPhone::create([
-                        'contact_id' => $contact->id,
-                        'phone' => $phone,
-                    ]);
+            if (!empty($data['phones'])) {
+                foreach ($data['phones'] as $phone) {
+                    if ($phone) {
+                        $contact->phones()->create(['phone' => preg_replace('/\D/', '', $phone)]);
+                    }
                 }
             }
-        }
 
-        return redirect()->route('contacts.index')
-            ->with('success', 'Contato criado com sucesso.');
+            DB::commit();
+
+            return redirect()->route('contacts.index')
+                ->with('success', 'Contato criado com sucesso!');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erro ao criar contato: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            return back()->withInput()
+                ->with('error', 'Ocorreu um erro inesperado ao criar o contato. Por favor, tente novamente.');
+        }
     }
 
     public function show(Contact $contact): Response
@@ -134,29 +197,33 @@ class ContactController extends Controller
 
     public function edit(Contact $contact)
     {
-        $contact->load(['emails', 'phones', 'adminContact']);
-        $contacts = Contact::where('type', 'physical')->get();
+        $contact->load(['emails', 'phones']);
+        $physicalContactsQuery = Contact::where('type', 'physical')->orderBy('name');
+        if ($contact->type === 'physical') {
+            $physicalContactsQuery->where('id', '!=', $contact->id);
+        }
+        $physicalContacts = $physicalContactsQuery->get(['id', 'name']);
 
         return Inertia::render('contacts/Edit', [
-            'contacts' => $contacts,
-            'contact' => $contact->load(['emails', 'phones']), // se tiver relations
+            'contacts' => $physicalContacts,
+            'contact' => $contact,
         ]);
     }
 
     public function update(Request $request, Contact $contact)
     {
-        // Validação comum
         $data = $request->validate([
             'type' => 'required|in:physical,legal',
-            'name' => 'required_if:type,physical|string|max:255',
-            'trade_name' => 'nullable|string|max:255',
-            'business_name' => 'required_if:type,legal|string|max:255',
+            'name' => 'required_if:type,physical|nullable|string|max:255',
+            'name' => 'required_if:type,legal|nullable|string|max:255',
+            'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => 'required|string|max:20|unique:contacts,cpf_cnpj,' . $contact->id,
             'rg' => 'nullable|string|max:20|unique:contacts,rg,' . $contact->id,
-            'gender' => 'nullable|in:male,female,other',
-            'nationality' => 'nullable|string|max:2',
+            'gender' => 'nullable|in:male,female,other,prefer_not_to_say',
+            'nationality' => 'nullable|string|max:5',
             'marital_status' => 'nullable|string|max:20',
             'profession' => 'nullable|string|max:100',
+            'date_of_birth' => 'nullable|date_format:Y-m-d',
             'business_activity' => 'nullable|string|max:100',
             'tax_state' => 'nullable|string|size:2',
             'tax_city' => 'nullable|string|max:100',
@@ -166,81 +233,104 @@ class ContactController extends Controller
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|size:2',
             'complement' => 'nullable|string|max:100',
-            'number' => 'nullable|numeric',
+            'number' => 'nullable|string|max:20',
             'administrator_id' => 'nullable|exists:contacts,id',
-            'emails' => 'array',
+            'emails' => 'present|array',
             'emails.*' => 'nullable|email|max:255',
-            'phones' => 'array',
+            'phones' => 'present|array',
             'phones.*' => 'nullable|string|max:20',
         ]);
 
-        // Atualiza o contato
-        $contact->update([
-            'type' => $data['type'],
-            'name' => $data['type'] === 'physical' ? $data['name'] : $data['trade_name'],
-            'cpf_cnpj' => $data['cpf_cnpj'],
-            'rg' => $data['rg'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'nationality' => $data['nationality'] ?? null,
-            'marital_status' => $data['marital_status'] ?? null,
-            'profession' => $data['profession'] ?? null,
-            'business_activity' => $data['business_activity'] ?? null,
-            'tax_state' => $data['tax_state'] ?? null,
-            'tax_city' => $data['tax_city'] ?? null,
-            'zip_code' => $data['zip_code'] ?? null,
-            'address' => $data['address'] ?? null,
-            'neighborhood' => $data['neighborhood'] ?? null,
-            'city' => $data['city'] ?? null,
-            'state' => $data['state'] ?? null,
-            'complement' => $data['complement'] ?? null,
-            'number' => $data['number'] ?? null,
-            'trade_name' => $data['trade_name'] ?? null,
-            'administrator_id' => $data['administrator_id'] ?? null,
-        ]);
+        DB::beginTransaction();
 
-        // Atualiza os e-mails (deleta os antigos e recria os novos)
-        $contact->emails()->delete();
-        if (!empty($data['emails'])) {
-            foreach ($data['emails'] as $email) {
-                if ($email) {
-                    $contact->emails()->create([
-                        'email' => $email,
-                    ]);
+        try {
+            $contactDataToUpdate = [
+                'cpf_cnpj' => preg_replace('/\D/', '', $data['cpf_cnpj']),
+                'rg' => isset($data['rg']) ? preg_replace('/\D/', '', $data['rg']) : null,
+                'gender' => $data['gender'] ?? null,
+                'nationality' => $data['nationality'] ?? null,
+                'marital_status' => $data['marital_status'] ?? null,
+                'profession' => $data['profession'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
+                'business_activity' => $data['business_activity'] ?? null,
+                'tax_state' => $data['tax_state'] ?? null,
+                'tax_city' => $data['tax_city'] ?? null,
+                'zip_code' => isset($data['zip_code']) ? preg_replace('/\D/', '', $data['zip_code']) : null,
+                'address' => $data['address'] ?? null,
+                'neighborhood' => $data['neighborhood'] ?? null,
+                'city' => $data['city'] ?? null,
+                'state' => $data['state'] ?? null,
+                'complement' => $data['complement'] ?? null,
+                'number' => $data['number'] ?? null,
+                'administrator_id' => $data['administrator_id'] ?? null,
+            ];
+
+            if ($contact->type === 'physical') { // Ou $data['type'] se o tipo puder mudar
+                $contactDataToUpdate['name'] = $data['name'];
+            } else {
+                $contactDataToUpdate['name'] = $data['name'];
+                $contactDataToUpdate['business_name'] = $data['business_name'];
+            }
+
+            $contact->update($contactDataToUpdate);
+
+            $contact->emails()->delete();
+            if (!empty($data['emails'])) {
+                foreach ($data['emails'] as $email) {
+                    if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        $contact->emails()->create(['email' => $email]);
+                    }
                 }
             }
-        }
 
-        // Atualiza os telefones (deleta os antigos e recria os novos)
-        $contact->phones()->delete();
-        if (!empty($data['phones'])) {
-            foreach ($data['phones'] as $phone) {
-                if ($phone) {
-                    $contact->phones()->create([
-                        'phone' => $phone,
-                    ]);
+            $contact->phones()->delete();
+            if (!empty($data['phones'])) {
+                foreach ($data['phones'] as $phone) {
+                    if ($phone) {
+                        $contact->phones()->create(['phone' => preg_replace('/\D/', '', $phone)]);
+                    }
                 }
             }
-        }
 
-        return redirect()->route('contacts.index')
-            ->with('success', 'Contato atualizado com sucesso.');
+            DB::commit();
+
+            return redirect()->route('contacts.show', $contact->id)
+                ->with('success', 'Contato atualizado com sucesso.');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao atualizar contato {$contact->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            return back()->withInput()
+                ->with('error', 'Falha ao atualizar o contato. Por favor, tente novamente.');
+        }
     }
 
-    /**
-     * Remove o contato.
-     */
-    public function destroy(Request $request)
+    public function destroy(Contact $contact)
     {
-        $request->validate([
-            'contact_id' => 'required|exists:contacts,id',
-        ]);
+        DB::beginTransaction();
+        try {
+            $contact->emails()->delete();
+            $contact->phones()->delete();
 
-        $contact = Contact::findOrFail($request->contact_id);
+            $contactName = $contact->name;
+            $contact->delete();
 
-        $contact->emails()->delete();
-        $contact->phones()->delete();
-        $contact->delete();
+            DB::commit();
 
-        return redirect()->route('contacts.index')->with('success', 'Contato deletado com sucesso.');
+            return redirect()->route('contacts.index')
+                ->with('success', "Contato '{$contactName}' deletado com sucesso.");
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao deletar contato {$contact->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+
+            $contactIdentifier = $contact->name ?: "ID {$contact->id}";
+
+            return redirect()->route('contacts.index')
+                ->with('error', "Não foi possível deletar o contato '{$contactIdentifier}'. Pode estar associado a outros registros.");
+        }
     }
 }

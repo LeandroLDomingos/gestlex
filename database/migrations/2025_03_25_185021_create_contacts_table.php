@@ -34,7 +34,6 @@ return new class extends Migration
 
             // Legal Person Specific Fields (THIS IS WHERE THE MISSING COLUMNS ARE)
             $table->string('business_name')->nullable(); // <<< ADD THIS
-            $table->string('trade_name')->nullable();    // <<< ADD THIS
             $table->text('business_activity')->nullable(); // <<< ADD THIS (text for longer descriptions)
             $table->string('tax_state')->nullable();     // <<< ADD THIS
             $table->string('tax_city')->nullable();      // <<< ADD THIS

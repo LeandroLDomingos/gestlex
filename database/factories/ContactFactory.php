@@ -51,15 +51,13 @@ class ContactFactory extends Factory
 
             // Garante que campos de Pessoa Jurídica não sejam enviados se não forem nulos no DB
             $data['business_name'] = null;
-            $data['trade_name'] = null;
             $data['business_activity'] = null;
             $data['tax_state'] = null;
             $data['tax_city'] = null;
 
         } elseif ($type === 'legal') {
             // Campos específicos para Pessoa Jurídica
-            $data['business_name'] = $fakerPtBr->company();
-            $data['trade_name'] = $faker->company() . ' ' . $faker->companySuffix();
+            $data['business_name'] = $faker->company() . ' ' . $faker->companySuffix();
             $data['business_activity'] = $faker->text(80);
             $data['tax_state'] = $fakerPtBr->state();
             $data['tax_city'] = $fakerPtBr->city();

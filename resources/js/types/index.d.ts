@@ -55,7 +55,6 @@ export interface Contact {
   business_name?: string
   tax_state?: string
   tax_city?: string
-  trade_name?: string
   administrator_id?: number
   zip_code?: string
   address?: string;
@@ -66,8 +65,8 @@ export interface Contact {
   number?: string;
   created_at?: string
   updated_at?: string
-  emails?: Email[]
-  phones?: Phone[]
+  emails?: ContactEmail[]
+  phones?: ContactPhone[]
   admin_contact?: Contact
   date_of_birth?: string
 }
@@ -82,13 +81,13 @@ export interface Process {
   responsible: { name: string }
 }
 
-export interface Email {
+export interface ContactEmail {
   id: number
   contact_id: number
   email: string
 }
 
-export interface Phone {
+export interface ContactPhone {
   id: number
   contact_id: number
   phone: string
