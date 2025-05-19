@@ -43,7 +43,7 @@ class ProcessController extends Controller
         }
 
         $processesQuery = Process::query()
-            ->with(['responsible:id,name', 'contact:id,name,trade_name,business_name']) // Eager load do contato também
+            ->with(['responsible:id,name', 'contact:id,name,business_name']) // Eager load do contato também
             ->when($search, function ($query, $searchTerm) {
                 $query->where(function ($q) use ($searchTerm) {
                     $q->where('title', 'LIKE', "%{$searchTerm}%")
@@ -54,7 +54,6 @@ class ProcessController extends Controller
                         })
                         ->orWhereHas('contact', function ($contactQuery) use ($searchTerm) {
                             $contactQuery->where('name', 'LIKE', "%{$searchTerm}%")
-                                ->orWhere('trade_name', 'LIKE', "%{$searchTerm}%")
                                 ->orWhere('business_name', 'LIKE', "%{$searchTerm}%");
                         });
                     if (is_numeric($searchTerm)) {
@@ -122,7 +121,7 @@ class ProcessController extends Controller
     {
         $process->load([
             'responsible:id,name', // Carrega apenas id e nome do responsável
-            'contact:id,name,trade_name,business_name,type', // Carrega dados do contato
+            'contact:id,name,business_name,type', // Carrega dados do contato
             'annotations' => function ($query) {
                 $query->with('user:id,name')->latest(); // Carrega anotações com o usuário que criou, ordenadas
             },

@@ -62,7 +62,6 @@ interface ContactEditFormData {
   id: number | string;
   type: 'physical' | 'legal';
   name?: string;
-  trade_name?: string;
   business_name?: string;
   cpf_cnpj: string;
   rg?: string;
@@ -92,7 +91,6 @@ const props = defineProps<{
         id: number | string;
         type: 'physical' | 'legal';
         name: string | null;
-        trade_name: string | null;
         business_name: string | null;
         cpf_cnpj: string;
         rg: string | null;
@@ -124,7 +122,7 @@ function getContactDisplayName(contactData: typeof props.contact): string {
     if (contactData.type === 'physical') {
         return contactData.name || 'Editar Contato Físico';
     }
-    return contactData.trade_name || contactData.business_name || contactData.name || 'Editar Contato Jurídico';
+    return contactData.business_name || contactData.name || 'Editar Contato Jurídico';
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -137,10 +135,10 @@ const breadcrumbs: BreadcrumbItem[] = [
 ]
 
 const adminOptions = computed(() =>
-    props.contacts.map(c => ({ value: c.id, label: c.name || c.trade_name || 'N/A' }))
+    props.contacts.map(c => ({ value: c.id, label: c.name || 'N/A' }))
 )
 
-type PhysicalFormType = Omit<ContactEditFormData, 'id' | 'trade_name' | 'business_name' | 'business_activity' | 'tax_state' | 'tax_city' | 'administrator_id'> & { _method: 'PUT' };
+type PhysicalFormType = Omit<ContactEditFormData, 'id' | 'business_name' | 'business_activity' | 'tax_state' | 'tax_city' | 'administrator_id'> & { _method: 'PUT' };
 type LegalFormType = Omit<ContactEditFormData, 'id' | 'name' | 'rg' | 'gender' | 'nationality' | 'marital_status' | 'profession' | 'date_of_birth'> & { _method: 'PUT' };
 
 const formPF = useForm<PhysicalFormType>({
@@ -172,7 +170,7 @@ const formPF = useForm<PhysicalFormType>({
 const formPJ = useForm<LegalFormType>({
     _method: 'PUT',
     type: 'legal' as const,
-    trade_name: props.contact.trade_name || props.contact.name || '',
+    name: props.contact.name || '',
     business_name: props.contact.business_name || '',
     cpf_cnpj: props.contact.cpf_cnpj || '',
     business_activity: props.contact.business_activity || '',
@@ -508,9 +506,9 @@ function submitPJ() {
                 <h2 class="text-xl font-semibold text-gray-700 dark:text-gray-200">Editar Pessoa Jurídica</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <Label for="trade_name_pj">Nome Fantasia <span class="text-red-500">*</span></Label>
-                        <Input id="trade_name_pj" v-model="formPJ.trade_name" required placeholder="Nome Fantasia da Empresa" />
-                        <InputError :message="formPJ.errors.trade_name" />
+                        <Label for="name_pj">Nome Fantasia <span class="text-red-500">*</span></Label>
+                        <Input id="name_pj" v-model="formPJ.name" required placeholder="Nome Fantasia da Empresa" />
+                        <InputError :message="formPJ.errors.name" />
                     </div>
                     <div>
                         <Label for="business_name_pj">Razão Social <span class="text-red-500">*</span></Label>

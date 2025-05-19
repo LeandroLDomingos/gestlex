@@ -3,76 +3,125 @@
 namespace App\Models;
 
 use App\Enums\ContactGender;
+use App\Enums\ContactMaritalStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Concerns\HasUuids; // Se Contact usa UUIDs
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo; // Para administrator_id
 
 class Contact extends Model
 {
     use HasFactory;
+    use HasUuids; // Adicione se sua tabela 'contacts' usa UUIDs para a chave primária
 
     protected $fillable = [
-        'type', // Físico ou Jurídico
+        'type',
         'name',
+        'business_name',
         'cpf_cnpj',
         'rg',
         'gender',
         'nationality',
         'marital_status',
         'profession',
+        'date_of_birth',
         'zip_code',
         'address',
         'neighborhood',
-        'number',
-        'complement',
         'city',
         'state',
-        'country',
-        'cpf_cnpj',
-        'business_name',
+        'complement',
+        'number',
         'business_activity',
         'tax_state',
         'tax_city',
         'administrator_id',
-        'date_of_birth',
+        // Adicione 'id' se você o define manualmente e não é auto-gerado
     ];
 
-    /**
-     * Relacionamento com e-mails do contato.
-     */
+    protected $casts = [
+        'date_of_birth' => 'date:Y-m-d',
+        'administrator_id' => 'string', // Se for UUID
+        // Adicione outros casts conforme necessário
+    ];
+
+    // Relacionamento com emails (já deve existir se você seguiu os exemplos anteriores)
     public function emails(): HasMany
     {
-        return $this->hasMany(ContactEmail::class, 'contact_id');
+        return $this->hasMany(ContactEmail::class);
     }
 
-    /**
-     * Relacionamento com telefones do contato.
-     */
-
-    
+    // Relacionamento com phones (já deve existir)
     public function phones(): HasMany
     {
-        return $this->hasMany(ContactPhone::class, 'contact_id');
+        return $this->hasMany(ContactPhone::class);
     }
 
-
-    public function adminContact()
+    // Novo: Relacionamento com anotações do contato
+    public function annotations(): HasMany
     {
-        return $this->belongsTo(Contact::class, 'administrator_id');
+        return $this->hasMany(ContactAnnotation::class, 'contact_id', 'id')->latest();
     }
-   public function getGenderLabelAttribute(): string
+
+    // Novo: Relacionamento com documentos do contato
+    public function documents(): HasMany
+    {
+        return $this->hasMany(ContactDocument::class, 'contact_id', 'id')->orderBy('created_at', 'desc');
+    }
+
+    // Novo: Relacionamento com processos/casos onde este contato é o principal
+    // Assumindo que a tabela 'processes' tem uma coluna 'contact_id'
+    public function processes(): HasMany
+    {
+        return $this->hasMany(Process::class, 'contact_id', 'id')->orderBy('updated_at', 'desc');
+    }
+
+    // Se um contato (Pessoa Física) pode ser administrador de outro contato (Pessoa Jurídica)
+    // Este é o inverso do que está no Processo (responsible_id).
+    // Se você tem um campo 'administrator_id' na tabela 'contacts' referenciando outro contato:
+    public function administrator(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'administrator_id'); // Um contato pode ser administrado por outro contato
+    }
+
+    // Se este contato (Pessoa Física) é o administrador de outros contatos (Pessoas Jurídicas)
+    public function administeredContacts(): HasMany
+    {
+        return $this->hasMany(Contact::class, 'administrator_id', 'id');
+    }
+
+    // Accessor para nome de exibição (útil no frontend)
+    public function getDisplayNameAttribute(): string
+    {
+        if ($this->type === 'physical') {
+            return $this->name ?? 'N/A';
+        }
+        return $this->business_name ?: $this->name ?? 'N/A';
+    }
+
+    public function getGenderLabelAttribute(): string
     {
         try {
-            // Usa o Enum DocumentType para obter o rótulo associado ao tipo de documento
             return ContactGender::from($this->gender)->label();
         } catch (\ValueError) {
-            // Retorna 'Desconhecido' caso o tipo seja inválido ou não existente
             return 'Desconhecido';
         }
     }
 
-    // Campos adicionais que serão automaticamente adicionados na resposta do modelo
-    protected $appends = ['gender_label'];
-
+    public function getMaritalStatusLabelAttribute(): string
+    {
+        if (is_null($this->marital_status)) {
+            return 'Não informado'; // Ou 'N/A', ou string vazia, conforme preferir
+        }
+        try {
+            // Usa o Enum ContactMaritalStatus para obter o rótulo
+            return ContactMaritalStatus::from($this->marital_status)->label();
+        } catch (\ValueError) {
+            // Retorna 'Desconhecido' caso o valor seja inválido ou não existente no Enum
+            // Ou você pode retornar o valor bruto: return $this->marital_status;
+            return 'Desconhecido';
+        }
+    }
+    protected $appends = ['gender_label', 'marital_status_label'];
 }

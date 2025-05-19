@@ -40,8 +40,9 @@ export type ContactType = 'physical' | 'legal'
 export type Gender = 'female' | 'male'
 export type MaritalStatus = 'single' | 'married' | 'common_law' | 'divorced' | 'widowed' | 'separated'
 
+
 export interface Contact {
-  id: number
+  id: number | string;
   type: ContactType
   name: string
   cpf_cnpj?: string
@@ -69,6 +70,9 @@ export interface Contact {
   phones?: ContactPhone[]
   admin_contact?: Contact
   date_of_birth?: string
+  annotations?: ContactAnnotation[];
+  documents?: ContactDocument[];
+  processes?: RelatedProcess[];
 }
 export interface Process {
   id: string
@@ -146,77 +150,105 @@ export interface PaginatedResponse<T> {
 // Em resources/js/types/index.ts ou um novo arquivo resources/js/types/process.d.ts
 
 export interface UserReference {
-    id: string | number;
-    name: string;
+  id: string | number;
+  name: string;
 }
 
 export interface ContactReference {
-    id: string | number;
-    name: string; // Nome da pessoa física ou nome fantasia/razão social da jurídica
-    type: 'physical' | 'legal';
+  id: string | number;
+  name: string; // Nome da pessoa física ou nome fantasia/razão social da jurídica
+  type: 'physical' | 'legal';
 }
 
 export interface ProcessAnnotation {
-    id: string | number;
-    content: string;
-    user_name: string; // Nome do usuário que criou a anotação
-    created_at: string; // Data da criação
-    // Adicione outros campos se necessário, como 'user_avatar_url'
+  id: string | number;
+  content: string;
+  user_name: string; // Nome do usuário que criou a anotação
+  created_at: string; // Data da criação
+  // Adicione outros campos se necessário, como 'user_avatar_url'
 }
 
 export interface ProcessTask {
-    id: string | number;
-    title: string;
-    due_date: string; // Data de entrega
-    is_overdue: boolean; // Indica se está atrasada
-    responsible_user: UserReference | null; // Usuário responsável pela tarefa
-    status: string; // Ex: "Pendente", "Em Andamento", "Concluída"
-    description?: string | null;
-    // Adicione outros campos como 'priority', 'completed_at', etc.
+  id: string | number;
+  title: string;
+  due_date: string; // Data de entrega
+  is_overdue: boolean; // Indica se está atrasada
+  responsible_user: UserReference | null; // Usuário responsável pela tarefa
+  status: string; // Ex: "Pendente", "Em Andamento", "Concluída"
+  description?: string | null;
+  // Adicione outros campos como 'priority', 'completed_at', etc.
 }
 
 export interface ProcessDocument {
-    id: string | number;
-    name: string;
-    url: string; // URL para download ou visualização
-    uploaded_at: string;
-    file_type_icon?: string; // Ex: 'pdf', 'doc', 'img' para mostrar um ícone
-    size?: string;
+  id: string | number;
+  name: string;
+  url: string; // URL para download ou visualização
+  uploaded_at: string;
+  file_type_icon?: string; // Ex: 'pdf', 'doc', 'img' para mostrar um ícone
+  size?: string;
 }
 
 export interface ProcessHistoryEntry {
-    id: string | number;
-    action: string; // Ex: "Criou tarefa", "Atualizou status", "Adicionou documento"
-    description: string; // Detalhes da ação
-    user_name: string;
-    created_at: string;
+  id: string | number;
+  action: string; // Ex: "Criou tarefa", "Atualizou status", "Adicionou documento"
+  description: string; // Detalhes da ação
+  user_name: string;
+  created_at: string;
 }
 
 export interface Process {
-    id: string; // UUID
-    title: string;
-    origin: string | null;
-    negotiated_value: number | string | null;
-    description: string | null;
-    workflow: 'prospecting' | 'consultative' | 'administrative' | 'judicial';
-    workflow_label?: string; // Accessor do backend
-    stage: number | null;
-    stage_label?: string; // Accessor do backend
-    responsible: UserReference | null;
-    contact: ContactReference | null; // Contato principal associado ao processo
-    created_at: string;
-    updated_at: string;
+  id: string; // UUID
+  title: string;
+  origin: string | null;
+  negotiated_value: number | string | null;
+  description: string | null;
+  workflow: 'prospecting' | 'consultative' | 'administrative' | 'judicial';
+  workflow_label?: string; // Accessor do backend
+  stage: number | null;
+  stage_label?: string; // Accessor do backend
+  responsible: UserReference | null;
+  contact: ContactReference | null; // Contato principal associado ao processo
+  created_at: string;
+  updated_at: string;
 
-    // Relacionamentos que seriam carregados (eager-loaded)
-    annotations?: ProcessAnnotation[];
-    tasks?: ProcessTask[];
-    documents?: ProcessDocument[];
-    history_entries?: ProcessHistoryEntry[];
-    // Outros campos relevantes
-    video_placeholder_url?: string; // Para o cartão azul
+  // Relacionamentos que seriam carregados (eager-loaded)
+  annotations?: ProcessAnnotation[];
+  tasks?: ProcessTask[];
+  documents?: ProcessDocument[];
+  history_entries?: ProcessHistoryEntry[];
+  // Outros campos relevantes
+  video_placeholder_url?: string; // Para o cartão azul
 }
 
 export interface BreadcrumbItem {
   title: string;
   href: string;
 }
+
+export interface ContactAnnotation {
+  id: string | number;
+  content: string;
+  user_name?: string;
+  created_at: string;
+  user?: { name: string };
+}
+
+export interface ContactDocument {
+  id: string | number; // Deveria ser number se vem do DB
+  name: string;
+  url: string;
+  uploaded_at: string;
+  file_type_icon?: string;
+  size?: string;
+  description?: string;
+}
+
+export interface RelatedProcess {
+  id: string;
+  title: string;
+  workflow_label?: string;
+  status?: string;
+  updated_at: string;
+}
+
+

@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('contacts', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('type'); // physical or legal
             $table->string('name');
             $table->string('cpf_cnpj')->unique()->nullable(); // Assuming it can be unique

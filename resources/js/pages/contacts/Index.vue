@@ -216,7 +216,7 @@ const tableHeaders: { key: SortableColumnKey | string; label: string; sortable: 
                                             day:
                                                 '2-digit', month: '2-digit', year: 'numeric'
                                         })
-                                    : '-' }}
+                                        : '-' }}
                                 </TableCell>
                                 </Link>
                             </template>
@@ -240,7 +240,10 @@ const tableHeaders: { key: SortableColumnKey | string; label: string; sortable: 
                                                 class="text-blue-600 dark:text-blue-400 hover:underline">limpar a busca
                                             </Link>
                                             {{ searchTerm ? ' para ver todos os contatos, ou ' : '' }}
-                                            crie um novo contato.
+                                            <Link :href="route('contacts.create')"
+                                                class="text-indigo-600 dark:text-indigo-400 hover:underline">
+                                            crie um novo caso
+                                            </Link>.
                                         </p>
                                     </div>
                                 </TableCell>
