@@ -70,7 +70,7 @@ class Process extends Model
         // 'id' (ou a chave primária do Process) é a chave local
         return $this->hasMany(ProcessDocument::class, 'process_id', 'id')->orderBy('created_at', 'desc');
     }
-    
+
     /**
      * Get all of the tasks for the Process.
      */
@@ -150,4 +150,6 @@ class Process extends Model
         $stages = self::getStagesForWorkflow($this->workflow);
         return $stages[$this->stage] ?? "Estágio {$this->stage}";
     }
+    protected $appends = ['workflow_label', 'stage_label']; // Adicione esta linha
+
 }

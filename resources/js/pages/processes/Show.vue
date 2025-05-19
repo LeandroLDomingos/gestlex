@@ -1,16 +1,37 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3'; // Adicionado router
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge'; // Para status de tarefa
+import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, MessageSquare, History } from 'lucide-vue-next';
-import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process'; // Ajuste o caminho se os tipos estiverem em outro lugar
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog'; // Para diálogos de confirmação
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'; // Para o menu de 3 pontos
+import {
+    Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
+    MessageSquare, History, Briefcase, DollarSign, Users,
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive // Ícones adicionados
+} from 'lucide-vue-next';
+import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process';
 
-// Helper para Ziggy
 const RGlobal = (window as any).route;
 const route = (name?: string, params?: any, absolute?: boolean): string => {
     if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
@@ -34,18 +55,16 @@ const route = (name?: string, params?: any, absolute?: boolean): string => {
 
 const props = defineProps<{
     process: Process;
-    // users: UserReference[]; // Para dropdown de responsáveis em Nova Tarefa
-    // can: { // Exemplo de permissões
-    //     edit_process: boolean;
-    //     delete_process: boolean;
-    //     add_task: boolean;
-    //     add_annotation: boolean;
-    // }
+    // users: UserReference[];
+    // can: { ... }
 }>();
 
 const activeMainTab = ref<'tasks' | 'documents' | 'history'>('tasks');
-const newAnnotationText = ref('');
 const showNewAnnotationForm = ref(false);
+
+// Estado para diálogo de exclusão do processo
+const showDeleteProcessDialog = ref(false);
+const processDeleteForm = useForm({});
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Painel', href: route('dashboard') },
@@ -57,9 +76,9 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => [
 const formatDate = (dateString: string | null | undefined, includeTime = false): string => {
     if (!dateString) return 'N/A';
     try {
-        const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00Z');
+        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
         const options: Intl.DateTimeFormatOptions = {
-            day: '2-digit', month: '2-digit', year: 'numeric'
+            day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
         };
         if (includeTime) {
             options.hour = '2-digit';
@@ -67,37 +86,93 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
         }
         return date.toLocaleDateString('pt-BR', options);
     } catch (e) {
+        console.error("Erro ao formatar data:", dateString, e);
         return dateString;
     }
 };
 
-// Formulário para nova anotação
+const formatCurrency = (value: number | null | undefined): string => {
+    if (value === null || typeof value === 'undefined') return 'N/A';
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+};
+
+const priorityLabel = computed(() => {
+    if (!props.process.priority) return 'N/A';
+    switch (props.process.priority.toLowerCase()) {
+        case 'high': return 'Alta';
+        case 'medium': return 'Média';
+        case 'low': return 'Baixa';
+        default: return props.process.priority;
+    }
+});
+
+const priorityVariant = computed(() => {
+    if (!props.process.priority) return 'outline';
+    switch (props.process.priority.toLowerCase()) {
+        case 'high': return 'destructive';
+        case 'medium': return 'secondary';
+        case 'low': return 'outline';
+        default: return 'outline';
+    }
+});
+
 const annotationForm = useForm({
     content: '',
     process_id: props.process.id,
 });
 
 function submitAnnotation() {
-    annotationForm.post(route('process.annotations.store', props.process.id), { // Ajuste a rota
+    annotationForm.post(route('processes.annotations.store', props.process.id), { // Corrigido para 'processes.annotations.store'
         preserveScroll: true,
         onSuccess: () => {
             annotationForm.reset('content');
             showNewAnnotationForm.value = false;
-            // Idealmente, o backend retornaria o processo atualizado com a nova anotação,
-            // ou você faria um router.reload({ only: ['process'] })
+            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar anotações
         },
+        onError: (errors) => {
+            console.error("Erro ao salvar anotação:", errors);
+        }
     });
 }
 
-// Simulação de dados para abas não implementadas
-const documents = ref<ProcessDocument[]>(props.process.documents || [
-    // { id: 1, name: 'Petição Inicial.pdf', url: '#', uploaded_at: '2024-05-10T10:00:00Z', file_type_icon: 'pdf', size: '1.2MB' },
-    // { id: 2, name: 'Procuração Assinada.docx', url: '#', uploaded_at: '2024-05-11T14:30:00Z', file_type_icon: 'doc', size: '80KB' },
-]);
-const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries || [
-    // { id: 1, action: 'Caso Criado', description: 'Caso iniciado por Fernanda Loren.', user_name: 'Sistema', created_at: '2024-05-10T09:00:00Z' },
-    // { id: 2, action: 'Tarefa Adicionada', description: 'Solicitar PPP junto aos empregadores.', user_name: 'Fernanda Loren', created_at: '2024-05-10T09:15:00Z' },
-]);
+// Funções para o menu de ações do Processo
+function editProcess() {
+    router.visit(route('processes.edit', props.process.id));
+}
+
+function archiveProcess() {
+    // Lógica para arquivar o processo (ex: chamada API)
+    // Por enquanto, apenas um console.log
+    console.log('Arquivar processo:', props.process.id);
+    // Exemplo de como poderia ser com useForm:
+    // const archiveForm = useForm({});
+    // archiveForm.patch(route('processes.archive', props.process.id), {
+    //   onSuccess: () => { /* router.reload() ou feedback */ }
+    // });
+    alert('Funcionalidade de arquivar ainda não implementada no backend.');
+}
+
+function openDeleteProcessDialog() {
+    showDeleteProcessDialog.value = true;
+}
+
+function submitDeleteProcess() {
+    processDeleteForm.delete(route('processes.destroy', props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showDeleteProcessDialog.value = false;
+            // O Inertia deve redirecionar para a lista de processos após a exclusão bem-sucedida (configurado no controller)
+        },
+        onError: (errors) => {
+            console.error('Erro ao excluir processo:', errors);
+            // Adicionar feedback de erro, se necessário
+        }
+    });
+}
+
+
+const documents = ref<ProcessDocument[]>(props.process.documents || []);
+const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries || []);
 
 </script>
 
@@ -106,15 +181,88 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex flex-col lg:flex-row gap-6 p-4 md:p-6 h-[calc(100vh-theme(spacing.16)-theme(spacing.1))] overflow-hidden">
             <div class="w-full lg:w-1/3 xl:w-1/4 space-y-6 flex-shrink-0 overflow-y-auto pr-2 no-scrollbar">
-                <Card class="overflow-hidden">
-                    <div class="bg-blue-500 dark:bg-blue-700 h-48 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-white opacity-50"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+                <Card class="overflow-hidden shadow-lg">
+                    <div class="bg-gradient-to-br from-blue-500 to-indigo-600 dark:from-blue-700 dark:to-indigo-800 h-32 sm:h-40 md:h-48 flex items-center justify-center p-4 relative">
+                        <Briefcase v-if="process.workflow_label?.toLowerCase().includes('judicial')" class="h-16 w-16 text-white opacity-75" />
+                        <MessageSquare v-else-if="process.workflow_label?.toLowerCase().includes('consultivo')" class="h-16 w-16 text-white opacity-75" />
+                        <Zap v-else-if="process.workflow_label?.toLowerCase().includes('prospecção')" class="h-16 w-16 text-white opacity-75" />
+                        <Paperclip v-else class="h-16 w-16 text-white opacity-75" />
+
+                        <div class="absolute top-2 right-2">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger as-child>
+                                    <Button variant="ghost" size="icon" class="h-8 w-8 text-white hover:bg-white/20 focus-visible:ring-white/50">
+                                        <MoreVertical class="h-5 w-5" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" class="w-48">
+                                    <DropdownMenuLabel>Ações do Caso</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem @click="editProcess">
+                                        <Edit class="mr-2 h-4 w-4" />
+                                        <span>Editar</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem @click="archiveProcess">
+                                        <Archive class="mr-2 h-4 w-4" />
+                                        <span>Arquivar</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem @click="openDeleteProcessDialog" class="text-red-600 focus:bg-red-50 dark:focus:bg-red-900/50 focus:text-red-600 dark:focus:text-red-400">
+                                        <Trash2 class="mr-2 h-4 w-4" />
+                                        <span>Excluir</span>
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
                     </div>
-                    <CardContent class="p-4">
-                        <CardTitle class="text-base">{{ process.title }}</CardTitle>
-                        <CardDescription class="text-xs">
+                    <CardContent class="p-4 space-y-2">
+                        <CardTitle class="text-lg font-semibold text-gray-800 dark:text-gray-100 truncate" :title="process.title">
+                            {{ process.title }}
+                        </CardTitle>
+                        <CardDescription class="text-xs text-gray-600 dark:text-gray-400">
                             {{ process.workflow_label || process.workflow }} - Estágio: {{ process.stage_label || process.stage || 'N/A' }}
                         </CardDescription>
+                        
+                        <Separator class="my-3" />
+
+                        <div class="text-sm space-y-1.5 text-gray-700 dark:text-gray-300">
+                            <div v-if="process.contact" class="flex items-center">
+                                <Users class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Contato:</span>
+                                <Link :href="route('contacts.show', process.contact.id)" class="text-indigo-600 dark:text-indigo-400 hover:underline truncate">
+                                    {{ process.contact.name || process.contact.business_name || 'N/A' }}
+                                </Link>
+                            </div>
+                             <div v-if="process.responsible" class="flex items-center">
+                                <UserCircle2 class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Responsável:</span> {{ process.responsible.name || 'N/A' }}
+                            </div>
+                             <div v-if="process.status" class="flex items-center">
+                                <CheckCircle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Status:</span> {{ process.status }}
+                            </div>
+                            <div class="flex items-center">
+                                <AlertTriangle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Prioridade:</span>
+                                <Badge :variant="priorityVariant" class="ml-1 text-xs">{{ priorityLabel }}</Badge>
+                            </div>
+                            <div class="flex items-center">
+                                <CalendarDays class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Criado em:</span> {{ formatDate(process.created_at) }}
+                            </div>
+                            <div v-if="process.due_date" class="flex items-center">
+                                <Clock class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Vencimento:</span> {{ formatDate(process.due_date) }}
+                            </div>
+                             <div v-if="process.negotiated_value !== null && typeof process.negotiated_value !== 'undefined'" class="flex items-center">
+                                <DollarSign class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Valor:</span> {{ formatCurrency(process.negotiated_value) }}
+                            </div>
+                             <div v-if="process.origin" class="flex items-center">
+                                <LinkIcon class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span class="font-medium mr-1">Origem:</span> {{ process.origin }}
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -135,20 +283,22 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                 rows="3"
                                 class="text-sm"
                             />
-                            <InputError :message="annotationForm.errors.content" class="mt-1" />
+                             <div v-if="annotationForm.errors.content" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                {{ annotationForm.errors.content }}
+                            </div>
                             <div class="flex justify-end space-x-2">
-                                <Button type="button" variant="ghost" size="sm" @click="showNewAnnotationForm = false; annotationForm.reset('content');">Cancelar</Button>
+                                <Button type="button" variant="ghost" size="sm" @click="showNewAnnotationForm = false; annotationForm.reset('content'); annotationForm.clearErrors();">Cancelar</Button>
                                 <Button type="submit" size="sm" :disabled="annotationForm.processing">Salvar</Button>
                             </div>
                         </form>
 
-                        <div v-if="process.annotations && process.annotations.length > 0" class="space-y-3 max-h-96 overflow-y-auto">
-                            <div v-for="annotation in process.annotations.slice().reverse()" :key="annotation.id" class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-xs">
+                        <div v-if="process.annotations && process.annotations.length > 0" class="space-y-3 max-h-96 overflow-y-auto pr-1">
+                            <div v-for="annotation in process.annotations.slice().reverse()" :key="annotation.id" class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-xs relative group">
                                 <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ annotation.content }}</p>
                                 <p class="text-gray-500 dark:text-gray-400 mt-1 text-right">
-                                    {{ annotation.user_name }} - {{ formatDate(annotation.created_at, true) }}
+                                    {{ annotation.user_name || annotation.user?.name || 'Sistema' }} - {{ formatDate(annotation.created_at, true) }}
                                 </p>
-                            </div>
+                                </div>
                         </div>
                         <p v-else-if="!showNewAnnotationForm" class="text-gray-500 dark:text-gray-400 text-center py-4">Nenhuma anotação encontrada.</p>
                     </CardContent>
@@ -177,7 +327,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                     <div v-if="activeMainTab === 'tasks'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Lista de Tarefas</h3>
-                            <Button variant="outline" size="sm">
+                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa')">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Nova Tarefa
                             </Button>
                         </div>
@@ -187,7 +337,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                     <div>
                                         <p class="font-semibold text-gray-800 dark:text-gray-100">{{ task.title }}</p>
                                         <p v-if="task.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{{ task.description }}</p>
-                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2">
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2 flex-wrap">
                                             <span class="flex items-center"><UserCircle2 class="h-3.5 w-3.5 mr-1"/> {{ task.responsible_user?.name || 'N/A' }}</span>
                                             <span class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> {{ formatDate(task.due_date) }}</span>
                                         </div>
@@ -197,7 +347,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                                class="text-xs whitespace-nowrap">
                                             {{ task.is_overdue ? 'Atrasada' : task.status }}
                                         </Badge>
-                                         </div>
+                                       </div>
                                 </CardContent>
                             </Card>
                         </div>
@@ -205,27 +355,35 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                     </div>
 
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
-                        <div class="flex justify-between items-center">
+                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
-                             <Button variant="outline" size="sm">
+                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo')">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
                             </Button>
                         </div>
                          <div v-if="documents.length > 0" class="space-y-3">
                             <Card v-for="doc in documents" :key="doc.id" class="hover:shadow-md transition-shadow">
                                 <CardContent class="p-3 flex items-center justify-between gap-3">
-                                    <div class="flex items-center gap-3">
-                                        <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                                        <div>
-                                            <a :href="doc.url" target="_blank" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline">{{ doc.name }}</a>
-                                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                        <div class="flex-grow min-w-0">
+                                            <a :href="doc.url" target="_blank" :download="doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.name }}</a>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
                                                 Enviado em: {{ formatDate(doc.uploaded_at) }} {{ doc.size ? `(${doc.size})` : '' }}
                                             </p>
+                                             <p v-if="doc.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-words">{{ doc.description }}</p>
                                         </div>
                                     </div>
-                                    <Button variant="ghost" size="icon" class="h-8 w-8">
-                                        <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
-                                    </Button>
+                                    <div class="flex-shrink-0 space-x-1">
+                                        <a :href="doc.url" target="_blank" :download="doc.name">
+                                            <Button variant="ghost" size="icon" class="h-8 w-8" title="Baixar documento">
+                                                <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
+                                            </Button>
+                                        </a>
+                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id)" title="Excluir documento">
+                                            <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
+                                        </Button>
+                                    </div>
                                 </CardContent>
                             </Card>
                         </div>
@@ -247,16 +405,38 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                 </div>
             </div>
         </div>
+
+        <Dialog :open="showDeleteProcessDialog" @update:open="showDeleteProcessDialog = $event">
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Confirmar Exclusão do Caso</DialogTitle>
+                    <DialogDescription>
+                        Tem certeza de que deseja excluir o caso <strong class="font-medium">"{{ process.title }}"</strong>?
+                        Esta ação não poderá ser desfeita e todos os dados associados (tarefas, documentos, anotações) também poderão ser afetados.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+                    <Button variant="outline" type="button" @click="showDeleteProcessDialog = false">Cancelar</Button>
+                    <Button variant="destructive" :disabled="processDeleteForm.processing" @click="submitDeleteProcess">
+                        <svg v-if="processDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {{ processDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
     </AppLayout>
 </template>
 
 <style scoped>
-/* Para esconder a barra de rolagem se necessário */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
 .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
 </style>
