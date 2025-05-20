@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3'; // Adicionado router
+import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,7 +16,7 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
-} from '@/components/ui/dialog'; // Para diálogos de confirmação
+} from '@/components/ui/dialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -24,18 +24,17 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-    DropdownMenuRadioGroup, // Para seleção de estágio
-    DropdownMenuRadioItem,  // Para seleção de estágio
-} from '@/components/ui/dropdown-menu'; // Para o menu de 3 pontos
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu';
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon // Ícones adicionados
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore
 } from 'lucide-vue-next';
-// Importando os tipos. Certifique-se que o caminho está correto.
-// Se @/types/process não existir, você pode precisar criar este arquivo ou mover as interfaces para @/types/index.ts
-import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
-// import InputError from '@/Components/InputError.vue'; // Descomente se você tiver e usar este componente
+
+import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process';
+// import InputError from '@/Components/InputError.vue';
 
 const RGlobal = (window as any).route;
 const route = (name?: string, params?: any, absolute?: boolean): string => {
@@ -58,40 +57,44 @@ const route = (name?: string, params?: any, absolute?: boolean): string => {
     return url;
 };
 
-interface StageOption { // Interface para os estágios disponíveis
+interface SelectOption {
+    key: string;
+    label: string;
+}
+
+interface StageOption {
     key: number;
     label: string;
 }
 
 const props = defineProps<{
-    process: Process; // A interface Process deve incluir workflow_label, stage_label, priority_label, status_label
-    availableStages?: StageOption[]; // Estágios disponíveis para o workflow atual, passados pelo controller
-    // users?: UserReference[]; // Para dropdown de responsáveis em Nova Tarefa
-    // can?: { // Exemplo de permissões
-    // edit_process: boolean;
-    // delete_process: boolean;
-    // add_task: boolean;
-    // add_annotation: boolean;
-    // }
+    process: Process & { archived_at?: string | null }; // Adicionado archived_at à interface Process aqui
+    availableStages?: StageOption[];
+    availablePriorities?: SelectOption[];
+    availableStatuses?: SelectOption[];
 }>();
 
 const activeMainTab = ref<'tasks' | 'documents' | 'history'>('tasks');
 const showNewAnnotationForm = ref(false);
-
-// Estado para diálogo de exclusão do processo
 const showDeleteProcessDialog = ref(false);
 const processDeleteForm = useForm({});
-
-// Estado para diálogo de exclusão de anotação do processo
 const showDeleteProcessAnnotationDialog = ref(false);
 const processAnnotationToDelete = ref<ProcessAnnotation | null>(null);
 const processAnnotationDeleteForm = useForm({});
 
-// Formulário para atualizar o estágio
 const stageUpdateForm = useForm({
-    stage: props.process.stage, // Inicializa com o estágio atual (key numérica)
+    stage: props.process.stage,
 });
 
+const statusUpdateForm = useForm({
+    status: props.process.status,
+});
+const priorityUpdateForm = useForm({
+    priority: props.process.priority,
+});
+
+// Formulário para arquivar/restaurar
+const archiveForm = useForm({});
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Painel', href: route('dashboard') },
@@ -109,10 +112,7 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
         };
         if (includeTime) { options.hour = '2-digit'; options.minute = '2-digit'; }
         return date.toLocaleDateString('pt-BR', options);
-    } catch (e) {
-        console.error("Erro ao formatar data:", dateString, e);
-        return dateString;
-    }
+    } catch (e) { console.error("Erro ao formatar data:", dateString, e); return dateString; }
 };
 
 const formatCurrency = (value: number | string | null | undefined): string => {
@@ -121,125 +121,120 @@ const formatCurrency = (value: number | string | null | undefined): string => {
     return numValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-// Usa diretamente o priority_label que vem do backend (via acessor e $appends)
-const priorityLabel = computed(() => props.process.priority_label || props.process.priority || 'N/A');
-
-const priorityVariant = computed((): 'destructive' | 'secondary' | 'outline' | 'default' => {
+const priorityLabelForDisplay = computed(() => props.process.priority_label || props.process.priority || 'N/A');
+const priorityVariantForDisplay = computed((): 'destructive' | 'secondary' | 'outline' | 'default' => {
     if (!props.process.priority) return 'outline';
     switch (props.process.priority.toLowerCase()) {
         case 'high': return 'destructive';
-        case 'medium': return 'secondary'; // Ou uma cor como 'warning' se tiver
-        case 'low': return 'outline'; // Ou uma cor mais suave como 'default' ou 'accent'
+        case 'medium': return 'secondary';
+        case 'low': return 'outline';
         default: return 'outline';
     }
 });
 
-const annotationForm = useForm({
-    content: '',
-    // process_id é adicionado na submissão ou já está implícito na rota
-});
+const annotationForm = useForm({ content: '' });
 
 function submitAnnotation() {
-    // Rota corrigida para 'processes.annotations.store'
     annotationForm.post(route('processes.annotations.store', props.process.id), {
         preserveScroll: true,
         onSuccess: () => {
             annotationForm.reset('content');
             showNewAnnotationForm.value = false;
-            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar anotações
+            router.reload({ only: ['process'] });
         },
-        onError: (errors) => {
-            console.error("Erro ao salvar anotação:", errors);
-            // Aqui você pode exibir os erros para o usuário, se necessário
-            // Ex: if (errors.content) { alert(errors.content); }
-        }
+        onError: (errors) => console.error("Erro ao salvar anotação:", errors)
     });
 }
 
-// Funções para o menu de ações do Processo
-function editProcess() {
-    router.visit(route('processes.edit', props.process.id));
+function editProcess() { router.visit(route('processes.edit', props.process.id)); }
+
+function toggleArchiveProcess() {
+    if (props.process.archived_at) {
+        archiveForm.patch(route('processes.unarchive', props.process.id), {
+            preserveScroll: true,
+            onSuccess: () => router.reload({ only: ['process'] }),
+            onError: (errors) => console.error('Erro ao restaurar processo:', errors)
+        });
+    } else {
+        archiveForm.patch(route('processes.archive', props.process.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                router.reload({ only: ['process'] });
+            },
+            onError: (errors) => console.error('Erro ao arquivar processo:', errors)
+        });
+    }
 }
 
-function archiveProcess() {
-    console.log('Arquivar processo:', props.process.id);
-    alert('Funcionalidade de arquivar ainda não implementada no backend.');
-    // Exemplo de como poderia ser com useForm:
-    // const archiveForm = useForm({});
-    // archiveForm.patch(route('processes.archive', props.process.id), { // Supondo uma rota PATCH para arquivar
-    // onSuccess: () => { router.reload({ only: ['process'] }); /* ou feedback */ }
-    // });
-}
-
-function openDeleteProcessDialog() {
-    showDeleteProcessDialog.value = true;
-}
-
+function openDeleteProcessDialog() { showDeleteProcessDialog.value = true; }
 function submitDeleteProcess() {
     processDeleteForm.delete(route('processes.destroy', props.process.id), {
-        preserveScroll: false, // false para forçar reload completo se o backend redirecionar para a lista
-        onSuccess: () => {
-            showDeleteProcessDialog.value = false;
-            // O backend deve redirecionar para 'processes.index' após a exclusão bem-sucedida
-            // e o Inertia cuidará da navegação.
-        },
-        onError: (errors) => {
-            console.error('Erro ao excluir processo:', errors);
-            // Adicionar feedback de erro para o usuário, se necessário
-        }
+        preserveScroll: false,
+        onSuccess: () => showDeleteProcessDialog.value = false,
+        onError: (errors) => console.error('Erro ao excluir processo:', errors)
     });
 }
 
-// Funções para exclusão de anotação do processo
 function openDeleteProcessAnnotationDialog(annotation: ProcessAnnotation) {
     processAnnotationToDelete.value = annotation;
     showDeleteProcessAnnotationDialog.value = true;
 }
-
 function submitDeleteProcessAnnotation() {
     if (!processAnnotationToDelete.value) return;
-    // Rota corrigida para 'processes.annotations.destroy'
     processAnnotationDeleteForm.delete(route('processes.annotations.destroy', {
-        process: props.process.id, // Passa o ID do processo pai
-        annotation: processAnnotationToDelete.value.id // Passa o ID da anotação a ser excluída
+        process: props.process.id,
+        annotation: processAnnotationToDelete.value.id
     }), {
         preserveScroll: true,
         onSuccess: () => {
             showDeleteProcessAnnotationDialog.value = false;
             processAnnotationToDelete.value = null;
-            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar anotações
+            router.reload({ only: ['process'] });
         },
-        onError: (errors) => {
-            console.error('Erro ao excluir anotação do processo:', errors);
-        }
+        onError: (errors) => console.error('Erro ao excluir anotação do processo:', errors)
     });
 }
 
-// Função para atualizar o estágio
 function updateStage(newStageKey: number) {
-    stageUpdateForm.stage = newStageKey; // O v-model no DropdownMenuRadioGroup já atualiza isso
-    stageUpdateForm.patch(route('processes.updateStage', props.process.id), { // Rota PATCH para atualizar estágio
+    stageUpdateForm.patch(route('processes.updateStage', props.process.id), {
         preserveScroll: true,
-        onSuccess: () => {
-            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar stage_label
-        },
+        onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => {
             console.error('Erro ao atualizar estágio:', errors);
-            // Resetar o form para o estágio atual do props em caso de erro para consistência visual
             stageUpdateForm.stage = props.process.stage;
-            // Adicionar feedback de erro para o usuário, se necessário
-            if (errors.stage) {
-                alert(`Erro ao mudar estágio: ${errors.stage}`);
-            } else {
-                alert('Ocorreu um erro ao tentar atualizar o estágio.');
-            }
+            alert(errors.stage || 'Ocorreu um erro ao tentar atualizar o estágio.');
         }
     });
 }
 
-// Dados para abas (usando diretamente das props)
+function updateProcessStatus(newStatusKey: string) {
+    statusUpdateForm.patch(route('processes.updateStatus', props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => {
+            console.error('Erro ao atualizar status:', errors);
+            statusUpdateForm.status = props.process.status;
+            alert(errors.status || 'Ocorreu um erro ao tentar atualizar o status.');
+        }
+    });
+}
+
+function updateProcessPriority(newPriorityKey: string) {
+    priorityUpdateForm.patch(route('processes.updatePriority', props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => {
+            console.error('Erro ao atualizar prioridade:', errors);
+            priorityUpdateForm.priority = props.process.priority;
+            alert(errors.priority || 'Ocorreu um erro ao tentar atualizar a prioridade.');
+        }
+    });
+}
+
 const documents = computed(() => props.process.documents || []);
-const historyEntries = computed(() => props.process.history_entries || []);
+const historyEntries = computed(() => props.process.history_entries || []); // Usar diretamente da prop process
+
+const isArchived = computed(() => !!props.process.archived_at);
 
 </script>
 
@@ -265,13 +260,14 @@ const historyEntries = computed(() => props.process.history_entries || []);
                                 <DropdownMenuContent align="end" class="w-48">
                                     <DropdownMenuLabel>Ações do Caso</DropdownMenuLabel>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem @click="editProcess">
+                                    <DropdownMenuItem @click="editProcess" :disabled="isArchived">
                                         <Edit class="mr-2 h-4 w-4" />
                                         <span>Editar</span>
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem @click="archiveProcess">
-                                        <Archive class="mr-2 h-4 w-4" />
-                                        <span>Arquivar</span>
+                                    <DropdownMenuItem @click="toggleArchiveProcess">
+                                        <Archive v-if="!isArchived" class="mr-2 h-4 w-4" />
+                                        <ArchiveRestore v-else class="mr-2 h-4 w-4" />
+                                        <span>{{ isArchived ? 'Restaurar' : 'Arquivar' }}</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem @click="openDeleteProcessDialog" class="text-red-600 focus:bg-red-50 dark:focus:bg-red-900/50 focus:text-red-600 dark:focus:text-red-400">
@@ -283,12 +279,16 @@ const historyEntries = computed(() => props.process.history_entries || []);
                         </div>
                     </div>
                     <CardContent class="p-4 space-y-2">
+                        <div v-if="isArchived" class="mb-2 p-2 bg-yellow-100 dark:bg-yellow-900/50 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 text-xs rounded">
+                            <p class="font-medium">Este caso está arquivado.</p>
+                            <p>Arquivado em: {{ formatDate(process.archived_at, true) }}</p>
+                        </div>
                         <CardTitle class="text-lg font-semibold text-gray-800 dark:text-gray-100 truncate" :title="process.title">
                             {{ process.title || 'Caso sem Título' }}
                         </CardTitle>
                         <CardDescription class="text-xs text-gray-600 dark:text-gray-400 flex items-center flex-wrap">
                             <span>{{ process.workflow_label || process.workflow }} - Estágio:</span>
-                            <DropdownMenu v-if="props.availableStages && props.availableStages.length > 0">
+                            <DropdownMenu v-if="props.availableStages && props.availableStages.length > 0 && !isArchived">
                                 <DropdownMenuTrigger as-child>
                                     <Button variant="link" class="p-0 h-auto ml-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="stageUpdateForm.processing">
                                         {{ process.stage_label || process.stage || 'N/A' }}
@@ -335,15 +335,81 @@ const historyEntries = computed(() => props.process.history_entries || []);
                                 <UserCircle2 class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Responsável:</span> {{ process.responsible.name || 'N/A' }}
                             </div>
-                             <div v-if="process.status_label || process.status" class="flex items-center">
+                            
+                            <div class="flex items-center">
                                 <CheckCircle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                <span class="font-medium mr-1">Status:</span> {{ process.status_label || process.status || 'N/A' }}
+                                <span class="font-medium mr-1">Status:</span>
+                                <DropdownMenu v-if="props.availableStatuses && props.availableStatuses.length > 0 && !isArchived">
+                                    <DropdownMenuTrigger as-child>
+                                        <Button variant="link" class="p-0 h-auto text-sm text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="statusUpdateForm.processing">
+                                            {{ process.status_label || process.status || 'N/A' }}
+                                            <ChevronDownIcon class="h-3 w-3 ml-0.5 opacity-70" v-if="!statusUpdateForm.processing" />
+                                            <svg v-else class="animate-spin ml-1 h-3 w-3 text-indigo-600 dark:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start">
+                                        <DropdownMenuLabel>Mudar Status</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuRadioGroup v-model="statusUpdateForm.status" @update:modelValue="updateProcessStatus">
+                                            <DropdownMenuRadioItem
+                                                v-for="statusOption in props.availableStatuses"
+                                                :key="statusOption.key"
+                                                :value="statusOption.key"
+                                                class="text-xs"
+                                                :disabled="statusUpdateForm.processing || statusUpdateForm.status === statusOption.key"
+                                            >
+                                                {{ statusOption.label }}
+                                            </DropdownMenuRadioItem>
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                                <span v-else class="ml-1">{{ process.status_label || process.status || 'N/A' }}</span>
+                                <div v-if="statusUpdateForm.errors.status" class="text-xs text-red-500 ml-2">
+                                    {{ statusUpdateForm.errors.status }}
+                                </div>
                             </div>
+
                             <div class="flex items-center">
                                 <AlertTriangle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Prioridade:</span>
-                                <Badge :variant="priorityVariant" class="ml-1 text-xs">{{ priorityLabel }}</Badge>
+                                <DropdownMenu v-if="props.availablePriorities && props.availablePriorities.length > 0 && !isArchived">
+                                    <DropdownMenuTrigger as-child>
+                                        <Button variant="link" class="p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="priorityUpdateForm.processing">
+                                            <Badge :variant="priorityVariantForDisplay" class="text-xs">
+                                                {{ priorityLabelForDisplay }}
+                                            </Badge>
+                                            <ChevronDownIcon class="h-3 w-3 ml-0.5 opacity-70 text-gray-600 dark:text-gray-400" v-if="!priorityUpdateForm.processing" />
+                                            <svg v-else class="animate-spin ml-1 h-3 w-3 text-gray-600 dark:text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start">
+                                        <DropdownMenuLabel>Mudar Prioridade</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuRadioGroup v-model="priorityUpdateForm.priority" @update:modelValue="updateProcessPriority">
+                                            <DropdownMenuRadioItem
+                                                v-for="priorityOption in props.availablePriorities"
+                                                :key="priorityOption.key"
+                                                :value="priorityOption.key"
+                                                class="text-xs"
+                                                :disabled="priorityUpdateForm.processing || priorityUpdateForm.priority === priorityOption.key"
+                                            >
+                                                {{ priorityOption.label }}
+                                            </DropdownMenuRadioItem>
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Badge v-else :variant="priorityVariantForDisplay" class="ml-1 text-xs">{{ priorityLabelForDisplay }}</Badge>
+                                <div v-if="priorityUpdateForm.errors.priority" class="text-xs text-red-500 ml-2">
+                                    {{ priorityUpdateForm.errors.priority }}
+                                </div>
                             </div>
+
                             <div class="flex items-center">
                                 <CalendarDays class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Criado em:</span> {{ formatDate(process.created_at) }}
@@ -368,7 +434,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                     <CardHeader class="pb-3">
                         <div class="flex justify-between items-center">
                             <CardTitle class="text-lg">Anotações</CardTitle>
-                            <Button variant="outline" size="sm" @click="showNewAnnotationForm = !showNewAnnotationForm">
+                            <Button variant="outline" size="sm" @click="showNewAnnotationForm = !showNewAnnotationForm" :disabled="isArchived">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Nova Anotação
                             </Button>
                         </div>
@@ -380,13 +446,14 @@ const historyEntries = computed(() => props.process.history_entries || []);
                                 placeholder="Digite sua anotação aqui..."
                                 rows="3"
                                 class="text-sm"
+                                :disabled="isArchived"
                             />
                              <div v-if="annotationForm.errors.content" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                 {{ annotationForm.errors.content }}
                             </div>
                             <div class="flex justify-end space-x-2">
                                 <Button type="button" variant="ghost" size="sm" @click="showNewAnnotationForm = false; annotationForm.reset('content'); annotationForm.clearErrors();">Cancelar</Button>
-                                <Button type="submit" size="sm" :disabled="annotationForm.processing">Salvar</Button>
+                                <Button type="submit" size="sm" :disabled="annotationForm.processing || isArchived">Salvar</Button>
                             </div>
                         </form>
                         
@@ -402,6 +469,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                                     class="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                                     @click="openDeleteProcessAnnotationDialog(annotation)"
                                     title="Excluir anotação"
+                                    :disabled="isArchived"
                                 >
                                     <Trash2 class="h-3 w-3 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-500" />
                                 </Button>
@@ -425,7 +493,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                         </button>
                         <button @click="activeMainTab = 'history'"
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
-                            HISTÓRICO ({{ historyEntries.length }})
+                            HISTÓRICO ({{ process.history_entries?.length || 0 }})
                         </button>
                     </nav>
                 </div>
@@ -434,7 +502,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                     <div v-if="activeMainTab === 'tasks'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Lista de Tarefas</h3>
-                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa para processo ID:', process.id)">
+                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa para processo ID:', process.id)" :disabled="isArchived">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Nova Tarefa
                             </Button>
                         </div>
@@ -464,7 +532,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
                          <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
-                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo ID:', process.id)">
+                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo ID:', process.id)" :disabled="isArchived">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
                             </Button>
                         </div>
@@ -487,7 +555,7 @@ const historyEntries = computed(() => props.process.history_entries || []);
                                                 <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
                                             </Button>
                                         </a>
-                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id + ' para processo ID: ' + process.id)" title="Excluir documento">
+                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id + ' para processo ID: ' + process.id)" title="Excluir documento" :disabled="isArchived">
                                             <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
                                         </Button>
                                     </div>
@@ -499,10 +567,10 @@ const historyEntries = computed(() => props.process.history_entries || []);
 
                     <div v-if="activeMainTab === 'history'" class="space-y-4 py-4">
                          <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Histórico de Atividades</h3>
-                         <div v-if="historyEntries.length > 0" class="space-y-3">
-                            <Card v-for="entry in historyEntries" :key="entry.id" class="bg-gray-50 dark:bg-gray-800/60">
+                         <div v-if="process.history_entries && process.history_entries.length > 0" class="space-y-3">
+                            <Card v-for="entry in process.history_entries" :key="entry.id" class="bg-gray-50 dark:bg-gray-800/60">
                                 <CardContent class="p-3 text-xs">
-                                   <p><span class="font-semibold">{{ entry.user_name }}</span> {{ entry.action.toLowerCase() }}: <span class="text-gray-700 dark:text-gray-300">{{ entry.description }}</span></p>
+                                   <p><span class="font-semibold">{{ entry.user?.name || entry.user_name || 'Sistema' }}</span> {{ entry.action?.toLowerCase() || 'realizou uma ação' }}: <span class="text-gray-700 dark:text-gray-300">{{ entry.description }}</span></p>
                                    <p class="text-gray-500 dark:text-gray-400 mt-0.5">{{ formatDate(entry.created_at, true) }}</p>
                                 </CardContent>
                             </Card>

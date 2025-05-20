@@ -23,9 +23,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge'; // Importado Badge
+import { Badge } from '@/components/ui/badge';
 
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon } from 'lucide-vue-next';
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon } from 'lucide-vue-next'; // Adicionado ArchiveIcon
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
@@ -67,8 +67,8 @@ interface Process {
     contact: RelatedContact | null;
     responsible: User | null;
     status: string | null;
-    updated_at: string;
-    tags: string[] | null; // Mantido na interface, mas não mais na tabela
+    updated_at: string; // Corrigido de last_update para updated_at
+    tags: string[] | null;
     workflow: string;
     workflow_label?: string;
     stage: number;
@@ -77,13 +77,14 @@ interface Process {
     negotiated_value?: number | string | null;
     created_at: string;
     priority?: 'low' | 'medium' | 'high';
-    priority_label?: string; // Label da prioridade vindo do backend
+    priority_label?: string;
+    archived_at?: string | null; // Adicionado para saber se está arquivado
 }
 
 interface WorkflowData {
     key: string;
     label: string;
-    count: number;
+    count: number; // Contagem de casos ativos para este workflow
     stages: { key: number; label: string }[];
 }
 
@@ -103,10 +104,12 @@ interface ProcessIndexProps {
         status?: string;
         date_from?: string;
         date_to?: string;
+        archived?: string | boolean; // Pode vir como string 'true'/'false' ou boolean
     };
     workflows?: WorkflowData[];
     currentWorkflowStages?: { key: number; label: string }[];
-    allProcessesCount?: number;
+    allProcessesCount?: number; // Contagem de casos ativos
+    archivedProcessesCount?: number; // Contagem de casos arquivados
     usersForFilter?: User[];
     statusesForFilter?: SelectOption[];
     prioritiesForFilter?: SelectOption[];
@@ -131,6 +134,8 @@ const filterByPriority = ref<string | null>(initialFilters.priority || null);
 const filterByStatus = ref<string | null>(initialFilters.status || null);
 const filterByDateFrom = ref<string | null>(initialFilters.date_from || null);
 const filterByDateTo = ref<string | null>(initialFilters.date_to || null);
+const isShowingArchived = ref(initialFilters.archived === 'true' || initialFilters.archived === true);
+
 
 const initialSortBy = (page.props.ziggy?.query?.sort_by as string) || 'updated_at';
 const initialSortDirection = (page.props.ziggy?.query?.sort_direction as 'asc' | 'desc') || 'desc';
@@ -147,7 +152,7 @@ const sortableColumns: Record<string, string> = {
     updated_at: 'updated_at',
     title: 'title',
     workflow: 'workflow',
-    priority: 'priority', // Adicionado para ordenação
+    priority: 'priority',
     created_at: 'created_at',
 };
 
@@ -179,8 +184,7 @@ const currentStagesForFilter = computed(() => {
     return props.currentWorkflowStages || [];
 });
 
-// Função para obter a variante da Badge de prioridade
-const getPriorityVariant = (priorityValue?: 'low' | 'medium' | 'high' | null): 'destructive' | 'secondary' | 'outline' => {
+const getPriorityVariant = (priorityValue?: 'low' | 'medium' | 'high' | null): 'destructive' | 'secondary' | 'outline' | 'default' => {
     if (!priorityValue) return 'outline';
     switch (priorityValue.toLowerCase()) {
         case 'high': return 'destructive';
@@ -193,23 +197,33 @@ const getPriorityVariant = (priorityValue?: 'low' | 'medium' | 'high' | null): '
 function selectAllCases() {
     activeWorkflow.value = null;
     activeStage.value = null;
+    isShowingArchived.value = false;
     applyAllFilters();
 }
 
 function selectWorkflow(workflowKey: string) {
-    if (activeWorkflow.value === workflowKey) {
-        activeWorkflow.value = null;
+    if (activeWorkflow.value === workflowKey && !isShowingArchived.value) {
+        activeWorkflow.value = null; // Desseleciona se clicar no mesmo workflow ativo
         activeStage.value = null;
     } else {
         activeWorkflow.value = workflowKey;
         activeStage.value = null;
     }
+    isShowingArchived.value = false;
     applyAllFilters();
 }
 
+function selectArchivedCases() {
+    activeWorkflow.value = null;
+    activeStage.value = null;
+    isShowingArchived.value = true;
+    applyAllFilters();
+}
+
+
 function selectStage(stageKey: number | null) {
     activeStage.value = stageKey;
-    applyAllFilters();
+    applyAllFilters(); // Não precisa passar `isShowingArchived` pois ele já está no estado correto
 }
 
 const handleSort = (columnKey: SortableColumnKey) => {
@@ -223,15 +237,23 @@ const handleSort = (columnKey: SortableColumnKey) => {
     applyAllFilters();
 };
 
-const applyAllFilters = (resetPage = true) => {
-    const queryParams: { [key: string]: string | number | undefined } = {
+const applyAllFilters = () => {
+    const queryParams: { [key: string]: string | number | boolean | undefined } = {
         sort_by: sortColumn.value,
         sort_direction: sortDirection.value,
     };
 
     if (searchTerm.value) queryParams.search = searchTerm.value;
-    if (activeWorkflow.value) queryParams.workflow = activeWorkflow.value;
-    if (activeStage.value !== null) queryParams.stage = activeStage.value;
+    
+    if (isShowingArchived.value) {
+        queryParams.archived = true;
+        // Se estamos mostrando arquivados, não filtramos por workflow ou estágio específico
+        // a menos que você queira permitir isso (ex: arquivados de um workflow específico)
+        // Por agora, ao clicar em "Arquivados", workflow e stage são limpos.
+    } else {
+        if (activeWorkflow.value) queryParams.workflow = activeWorkflow.value;
+        if (activeStage.value !== null) queryParams.stage = activeStage.value;
+    }
 
     if (filterByResponsible.value && filterByResponsible.value !== 'null') {
         queryParams.responsible_id = filterByResponsible.value;
@@ -278,8 +300,8 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
     { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[25%]' },
     { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
     { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[15%]' },
-    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' }, // Ajustado para updated_at
-    { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[15%]' }, // Alterado de 'tags' para 'priority'
+    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' }, // Corrigido para updated_at
+    { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[15%]' }, // Alterado de tags para priority
 ];
 
 </script>
@@ -289,17 +311,17 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full">
             <aside class="w-72 bg-gray-50 dark:bg-gray-800 p-4 space-y-1 border-r dark:border-gray-700 flex-shrink-0 overflow-y-auto">
-                <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">Fluxos</h2>
+                <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">Filtros</h2>
                 <Button
                     @click="selectAllCases"
-                    :variant="!activeWorkflow ? 'default' : 'ghost'"
+                    :variant="!activeWorkflow && !isShowingArchived ? 'default' : 'ghost'"
                     class="w-full justify-between text-sm h-9 mb-1"
                 >
-                    <span>Todos os Casos</span>
+                    <span>Todos os Ativos</span>
                     <span
                         :class="[
                             'ml-auto text-xs px-1.5 py-0.5 rounded-full',
-                            !activeWorkflow
+                            !activeWorkflow && !isShowingArchived
                                 ? 'bg-white/20 text-white dark:bg-black/30 dark:text-gray-200'
                                 : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
                         ]"
@@ -312,14 +334,14 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                     v-for="wf in props.workflows"
                     :key="wf.key"
                     @click="selectWorkflow(wf.key)"
-                    :variant="activeWorkflow === wf.key ? 'default' : 'ghost'"
+                    :variant="activeWorkflow === wf.key && !isShowingArchived ? 'default' : 'ghost'"
                     class="w-full justify-between text-sm h-9 mb-1"
                 >
                     <span>{{ wf.label }}</span>
                     <span
                         :class="[
                             'ml-auto text-xs px-1.5 py-0.5 rounded-full',
-                            activeWorkflow === wf.key
+                            activeWorkflow === wf.key && !isShowingArchived
                                 ? 'bg-white/20 text-white dark:bg-black/30 dark:text-gray-200'
                                 : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
                         ]"
@@ -327,16 +349,38 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                         {{ wf.count }}
                     </span>
                 </Button>
+                <Separator class="my-2"/>
+                 <Button
+                    @click="selectArchivedCases"
+                    :variant="isShowingArchived ? 'secondary' : 'ghost'"
+                    class="w-full justify-between text-sm h-9 mb-1"
+                >
+                    <span>
+                        <ArchiveIcon class="h-4 w-4 mr-2 inline-block" />
+                        Arquivados
+                    </span>
+                    <span
+                        :class="[
+                            'ml-auto text-xs px-1.5 py-0.5 rounded-full',
+                            isShowingArchived
+                                ? 'bg-secondary-foreground/20 text-secondary-foreground dark:bg-secondary/30 dark:text-secondary-foreground'
+                                : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                        ]"
+                    >
+                        {{ props.archivedProcessesCount ?? '...' }}
+                    </span>
+                </Button>
             </aside>
 
             <main class="flex-1 p-6 space-y-6 overflow-y-auto">
                 <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <h1 class="text-2xl font-semibold text-gray-800 dark:text-gray-100">
-                        Casos
-                        <span v-if="activeWorkflow && props.workflows" class="text-lg text-gray-600 dark:text-gray-400 font-normal ml-2">
+                        <span v-if="isShowingArchived">Casos Arquivados</span>
+                        <span v-else>Casos Ativos</span>
+                        <span v-if="activeWorkflow && props.workflows && !isShowingArchived" class="text-lg text-gray-600 dark:text-gray-400 font-normal ml-2">
                             ({{ props.workflows.find(w => w.key === activeWorkflow)?.label || activeWorkflow }})
                         </span>
-                         <span v-if="activeStage && currentStagesForFilter.length" class="text-lg text-gray-500 dark:text-gray-500 font-normal ml-1">
+                         <span v-if="activeStage && currentStagesForFilter.length && !isShowingArchived" class="text-lg text-gray-500 dark:text-gray-500 font-normal ml-1">
                             / {{ currentStagesForFilter.find(s => s.key == activeStage)?.label || activeStage }}
                         </span>
                     </h1>
@@ -355,7 +399,7 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                     </div>
                 </div>
 
-                <div v-if="activeWorkflow && currentStagesForFilter.length" class="bg-white dark:bg-gray-800 p-2 rounded-md shadow flex items-center space-x-2 overflow-x-auto no-scrollbar">
+                <div v-if="activeWorkflow && currentStagesForFilter.length && !isShowingArchived" class="bg-white dark:bg-gray-800 p-2 rounded-md shadow flex items-center space-x-2 overflow-x-auto no-scrollbar">
                     <span class="text-sm font-medium text-gray-700 dark:text-gray-300 self-center mr-2 whitespace-nowrap pl-1">
                         Estágios:
                     </span>

@@ -7,30 +7,33 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes; // Adicionado para SoftDeletes
 // Importar outros modelos necessários
 use App\Models\Contact;
-use App\Models\User; // Adicionado para o relacionamento 'responsible'
+use App\Models\User;
 use App\Models\ProcessAnnotation;
-use App\Models\ProcessDocument; // Adicionado para o relacionamento 'documents'
+use App\Models\ProcessDocument;
 use App\Models\Task;
 
 class Process extends Model
 {
     use HasUuids;
     use HasFactory;
+    use SoftDeletes; // Habilita Soft Deletes para a ação "Excluir"
 
     protected $fillable = [
         'title',
         'origin',
         'negotiated_value',
         'description',
-        'responsible_id', // Chave estrangeira para User
+        'responsible_id',
         'workflow',
         'stage',
-        'contact_id',     // Chave estrangeira para Contact
-        'priority',       // <<< ADICIONADO
-        'status',         // <<< ADICIONADO
-        'due_date',       // <<< ADICIONADO
+        'contact_id',
+        'priority',
+        'status',
+        'due_date',
+        'archived_at', // Adicionado para arquivamento lógico
     ];
 
     /**
@@ -41,9 +44,10 @@ class Process extends Model
     protected $casts = [
         'negotiated_value' => 'decimal:2',
         'stage' => 'integer',
-        'responsible_id' => 'string', // Se o ID do User for UUID
-        'contact_id' => 'string',     // Se o ID do Contact for UUID
-        'due_date' => 'date',         // <<< ADICIONADO
+        'responsible_id' => 'string', // ou 'integer' se users.id for int
+        'contact_id' => 'string',     // ou 'integer' se contacts.id for int
+        'due_date' => 'date',
+        'archived_at' => 'datetime', // Cast para objeto Carbon
     ];
 
     /**
@@ -68,6 +72,14 @@ class Process extends Model
     public function annotations(): HasMany
     {
         return $this->hasMany(ProcessAnnotation::class, 'process_id', 'id')->latest();
+    }
+    
+    /**
+     * Get all of the history entries for the Process.
+     */
+    public function historyEntries(): HasMany
+    {
+        return $this->hasMany(ProcessHistoryEntry::class, 'process_id', 'id')->latest();
     }
 
     /**
@@ -140,13 +152,13 @@ class Process extends Model
         self::PRIORITY_HIGH => 'Alta',
     ];
     
-    // Constantes para Status (Exemplo, ajuste conforme necessário)
+    // Constantes para Status
     public const STATUS_OPEN = 'Aberto';
     public const STATUS_IN_PROGRESS = 'Em Andamento';
     public const STATUS_PENDING_CLIENT = 'Pendente Cliente';
     public const STATUS_COMPLETED = 'Concluído';
     public const STATUS_CANCELED = 'Cancelado';
-    // Adicione outros que você usa no seu sistema
+
     public const STATUSES = [
         self::STATUS_OPEN => 'Aberto',
         self::STATUS_IN_PROGRESS => 'Em Andamento',
@@ -181,9 +193,6 @@ class Process extends Model
         return $stages[$this->stage] ?? "Estágio {$this->stage}";
     }
 
-    /**
-     * Obtém o rótulo da prioridade do processo.
-     */
     public function getPriorityLabelAttribute(): string
     {
         if (is_null($this->priority)) {
@@ -192,18 +201,21 @@ class Process extends Model
         return self::PRIORITIES[$this->priority] ?? ucfirst((string) $this->priority);
     }
     
-    /**
-     * Obtém o rótulo do status do processo.
-     */
     public function getStatusLabelAttribute(): string
     {
         if (is_null($this->status)) {
             return 'Não definido';
         }
-        // Se você definir self::STATUSES como no exemplo acima, use-o:
         return self::STATUSES[$this->status] ?? ucfirst((string) $this->status);
-        // Caso contrário, se status for um texto livre, apenas retorne ele:
-        // return ucfirst((string) $this->status);
+    }
+
+    /**
+     * Verifica se o processo está arquivado.
+     * MÉTODO ADICIONADO AQUI
+     */
+    public function isArchived(): bool
+    {
+        return !is_null($this->archived_at);
     }
 
     /**
@@ -214,7 +226,8 @@ class Process extends Model
     protected $appends = [
         'workflow_label', 
         'stage_label',
-        'priority_label', // Adicionado
-        'status_label',   // Adicionado
+        'priority_label',
+        'status_label',
+        // 'is_archived' // Opcional: Adicionar 'is_archived' se quiser que o método seja serializado como atributo
     ];
 }
