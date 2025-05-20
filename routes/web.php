@@ -75,13 +75,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/processes/{process}/annotations', [ProcessController::class, 'storeProcessAnnotation'])->name('processes.annotations.store');
     Route::delete('/processes/{process}/annotations/{annotation}', [ProcessController::class, 'destroyProcessAnnotation'])->name('processes.annotations.destroy');
 
-    // Documentos de Processo (assumindo que estão no ProcessController ou em um dedicado)
-    // Se você criar um ProcessDocumentController:
-    // Route::post('/processes/{process}/documents', [ProcessDocumentController::class, 'store'])->name('processes.documents.store');
-    // Route::delete('/processes/{process}/documents/{document}', [ProcessDocumentController::class, 'destroy'])->name('processes.documents.destroy');
-    // Se estiver no ProcessController:
-    // Route::post('/processes/{process}/documents', [ProcessController::class, 'storeProcessDocument'])->name('processes.documents.store');
-    // Route::delete('/processes/{process}/documents/{document}', [ProcessController::class, 'destroyProcessDocument'])->name('processes.documents.destroy');
+    Route::post('/processes/{process}/documents', [ProcessController::class, 'storeProcessDocument'])->name('processes.documents.store');
+    Route::delete('/processes/{process}/documents/{document}', [ProcessController::class, 'destroyProcessDocument'])->name('processes.documents.destroy');
 
 
     // Tarefas de Processo (assumindo que estão no ProcessController ou em um dedicado TaskController)

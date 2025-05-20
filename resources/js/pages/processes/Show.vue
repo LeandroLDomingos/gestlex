@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input'; // Para o formulário de upload
+import { Label } from '@/components/ui/label';   // Para o formulário de upload
 import {
     Dialog,
     DialogClose,
@@ -30,14 +32,15 @@ import {
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud
 } from 'lucide-vue-next';
 
+// Importando os tipos. Certifique-se que o caminho está correto.
 import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process';
-// import InputError from '@/Components/InputError.vue';
+// import InputError from '@/Components/InputError.vue'; // Descomente se você tiver e usar este componente
 
 const RGlobal = (window as any).route;
-const route = (name?: string, params?: any, absolute?: boolean): string => {
+const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
     if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
     console.warn(`Helper de rota Ziggy não encontrado para a rota: ${name}. Usando fallback.`);
     let url = `/${name?.replace(/\./g, '/') || ''}`;
@@ -68,7 +71,7 @@ interface StageOption {
 }
 
 const props = defineProps<{
-    process: Process & { archived_at?: string | null }; // Adicionado archived_at à interface Process aqui
+    process: Process & { archived_at?: string | null, documents?: ProcessDocument[], history_entries?: ProcessHistoryEntry[] };
     availableStages?: StageOption[];
     availablePriorities?: SelectOption[];
     availableStatuses?: SelectOption[];
@@ -85,22 +88,34 @@ const processAnnotationDeleteForm = useForm({});
 const stageUpdateForm = useForm({
     stage: props.process.stage,
 });
-
 const statusUpdateForm = useForm({
     status: props.process.status,
 });
 const priorityUpdateForm = useForm({
     priority: props.process.priority,
 });
-
-// Formulário para arquivar/restaurar
 const archiveForm = useForm({});
 
+// Para Documentos do Processo
+const showUploadProcessDocumentDialog = ref(false);
+const processDocumentForm = useForm<{
+    file: File | null;
+    description: string;
+}>({
+    file: null,
+    description: '',
+});
+const processDocumentFileInputRef = ref<HTMLInputElement | null>(null);
+const showDeleteProcessDocumentDialog = ref(false);
+const processDocumentToDelete = ref<ProcessDocument | null>(null);
+const processDocumentDeleteForm = useForm({});
+
+
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
-    { title: 'Painel', href: route('dashboard') },
-    { title: 'Casos', href: route('processes.index') },
-    { title: props.process.workflow_label || props.process.workflow, href: route('processes.index', { workflow: props.process.workflow }) },
-    { title: props.process.title || 'Detalhes do Caso', href: route('processes.show', props.process.id) },
+    { title: 'Painel', href: routeHelper('dashboard') },
+    { title: 'Casos', href: routeHelper('processes.index') },
+    { title: props.process.workflow_label || props.process.workflow, href: routeHelper('processes.index', { workflow: props.process.workflow }) },
+    { title: props.process.title || 'Detalhes do Caso', href: routeHelper('processes.show', props.process.id) },
 ]);
 
 const formatDate = (dateString: string | null | undefined, includeTime = false): string => {
@@ -135,7 +150,7 @@ const priorityVariantForDisplay = computed((): 'destructive' | 'secondary' | 'ou
 const annotationForm = useForm({ content: '' });
 
 function submitAnnotation() {
-    annotationForm.post(route('processes.annotations.store', props.process.id), {
+    annotationForm.post(routeHelper('processes.annotations.store', props.process.id), {
         preserveScroll: true,
         onSuccess: () => {
             annotationForm.reset('content');
@@ -146,29 +161,18 @@ function submitAnnotation() {
     });
 }
 
-function editProcess() { router.visit(route('processes.edit', props.process.id)); }
-
+function editProcess() { router.visit(routeHelper('processes.edit', props.process.id)); }
 function toggleArchiveProcess() {
-    if (props.process.archived_at) {
-        archiveForm.patch(route('processes.unarchive', props.process.id), {
-            preserveScroll: true,
-            onSuccess: () => router.reload({ only: ['process'] }),
-            onError: (errors) => console.error('Erro ao restaurar processo:', errors)
-        });
-    } else {
-        archiveForm.patch(route('processes.archive', props.process.id), {
-            preserveScroll: true,
-            onSuccess: () => {
-                router.reload({ only: ['process'] });
-            },
-            onError: (errors) => console.error('Erro ao arquivar processo:', errors)
-        });
-    }
+    const targetRoute = props.process.archived_at ? 'processes.unarchive' : 'processes.archive';
+    archiveForm.patch(routeHelper(targetRoute, props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => console.error(`Erro ao ${props.process.archived_at ? 'restaurar' : 'arquivar'} processo:`, errors)
+    });
 }
-
 function openDeleteProcessDialog() { showDeleteProcessDialog.value = true; }
 function submitDeleteProcess() {
-    processDeleteForm.delete(route('processes.destroy', props.process.id), {
+    processDeleteForm.delete(routeHelper('processes.destroy', props.process.id), {
         preserveScroll: false,
         onSuccess: () => showDeleteProcessDialog.value = false,
         onError: (errors) => console.error('Erro ao excluir processo:', errors)
@@ -181,7 +185,7 @@ function openDeleteProcessAnnotationDialog(annotation: ProcessAnnotation) {
 }
 function submitDeleteProcessAnnotation() {
     if (!processAnnotationToDelete.value) return;
-    processAnnotationDeleteForm.delete(route('processes.annotations.destroy', {
+    processAnnotationDeleteForm.delete(routeHelper('processes.annotations.destroy', {
         process: props.process.id,
         annotation: processAnnotationToDelete.value.id
     }), {
@@ -196,45 +200,93 @@ function submitDeleteProcessAnnotation() {
 }
 
 function updateStage(newStageKey: number) {
-    stageUpdateForm.patch(route('processes.updateStage', props.process.id), {
+    // O v-model do DropdownMenuRadioGroup já atualiza stageUpdateForm.stage
+    stageUpdateForm.patch(routeHelper('processes.updateStage', props.process.id), {
         preserveScroll: true,
         onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => {
             console.error('Erro ao atualizar estágio:', errors);
-            stageUpdateForm.stage = props.process.stage;
+            stageUpdateForm.stage = props.process.stage; // Reverte em caso de erro
             alert(errors.stage || 'Ocorreu um erro ao tentar atualizar o estágio.');
         }
     });
 }
 
 function updateProcessStatus(newStatusKey: string) {
-    statusUpdateForm.patch(route('processes.updateStatus', props.process.id), {
+    // O v-model do DropdownMenuRadioGroup já atualiza statusUpdateForm.status
+    statusUpdateForm.patch(routeHelper('processes.updateStatus', props.process.id), {
         preserveScroll: true,
         onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => {
             console.error('Erro ao atualizar status:', errors);
-            statusUpdateForm.status = props.process.status;
+            statusUpdateForm.status = props.process.status; // Reverte em caso de erro
             alert(errors.status || 'Ocorreu um erro ao tentar atualizar o status.');
         }
     });
 }
 
 function updateProcessPriority(newPriorityKey: string) {
-    priorityUpdateForm.patch(route('processes.updatePriority', props.process.id), {
+    // O v-model do DropdownMenuRadioGroup já atualiza priorityUpdateForm.priority
+    priorityUpdateForm.patch(routeHelper('processes.updatePriority', props.process.id), {
         preserveScroll: true,
         onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => {
             console.error('Erro ao atualizar prioridade:', errors);
-            priorityUpdateForm.priority = props.process.priority;
+            priorityUpdateForm.priority = props.process.priority; // Reverte em caso de erro
             alert(errors.priority || 'Ocorreu um erro ao tentar atualizar a prioridade.');
         }
     });
 }
 
-const documents = computed(() => props.process.documents || []);
-const historyEntries = computed(() => props.process.history_entries || []); // Usar diretamente da prop process
+// Funções para Documentos do Processo
+function submitProcessDocument() {
+    if (!processDocumentForm.file) {
+        processDocumentForm.setError('file', 'Por favor, selecione um arquivo.');
+        return;
+    }
+    processDocumentForm.post(routeHelper('processes.documents.store', props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            processDocumentForm.reset();
+            if (processDocumentFileInputRef.value) {
+                processDocumentFileInputRef.value.value = '';
+            }
+            showUploadProcessDocumentDialog.value = false;
+            router.reload({ only: ['process'] });
+        },
+        onError: (errors) => {
+            console.error('Erro ao enviar documento do processo:', errors);
+        },
+        forceFormData: true,
+    });
+}
+
+function openDeleteProcessDocumentDialog(doc: ProcessDocument) {
+    processDocumentToDelete.value = doc;
+    showDeleteProcessDocumentDialog.value = true;
+}
+
+function submitDeleteProcessDocument() {
+    if (!processDocumentToDelete.value) return;
+    processDocumentDeleteForm.delete(routeHelper('processes.documents.destroy', {
+        process: props.process.id,
+        document: processDocumentToDelete.value.id
+    }), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showDeleteProcessDocumentDialog.value = false;
+            processDocumentToDelete.value = null;
+            router.reload({ only: ['process'] });
+        },
+        onError: (errors) => {
+            console.error('Erro ao excluir documento do processo:', errors);
+        }
+    });
+}
 
 const isArchived = computed(() => !!props.process.archived_at);
+
+// Removido: const route = routeHelper; // Não é mais necessário, usamos routeHelper diretamente
 
 </script>
 
@@ -327,7 +379,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                             <div v-if="process.contact" class="flex items-center">
                                 <Users class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Contato:</span>
-                                <Link :href="route('contacts.show', process.contact.id)" class="text-indigo-600 dark:text-indigo-400 hover:underline truncate">
+                                <Link :href="routeHelper('contacts.show', process.contact.id)" class="text-indigo-600 dark:text-indigo-400 hover:underline truncate">
                                     {{ process.contact.name || process.contact.business_name || 'N/A' }}
                                 </Link>
                             </div>
@@ -489,7 +541,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                         </button>
                         <button @click="activeMainTab = 'documents'"
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'documents' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
-                            DOCUMENTOS ({{ documents.length }})
+                            DOCUMENTOS ({{ process.documents?.length || 0 }})
                         </button>
                         <button @click="activeMainTab = 'history'"
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
@@ -532,12 +584,71 @@ const isArchived = computed(() => !!props.process.archived_at);
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
                          <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
-                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo ID:', process.id)" :disabled="isArchived">
-                                <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
-                            </Button>
+                            <Dialog :open="showUploadProcessDocumentDialog" @update:open="showUploadProcessDocumentDialog = $event">
+                                <DialogTrigger as-child>
+                                    <Button variant="outline" size="sm" @click="showUploadProcessDocumentDialog = true" :disabled="isArchived">
+                                        <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent class="sm:max-w-lg">
+                                    <DialogHeader>
+                                        <DialogTitle>Adicionar Novo Documento ao Caso</DialogTitle>
+                                        <DialogDescription>
+                                            Selecione um arquivo e adicione uma descrição opcional.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <form @submit.prevent="submitProcessDocument" class="space-y-4 mt-4">
+                                        <div>
+                                            <Label for="processDocumentFile" class="text-sm font-medium">Arquivo</Label>
+                                            <div class="mt-1 flex items-center h-10 border border-input bg-background rounded-md ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                                                <Input
+                                                    id="processDocumentFile"
+                                                    type="file"
+                                                    ref="processDocumentFileInputRef"
+                                                    @input="processDocumentForm.file = ($event.target as HTMLInputElement)?.files?.[0] || null"
+                                                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-900/50 dark:file:text-indigo-300 dark:hover:file:bg-indigo-800/50 h-full focus-visible:ring-0 focus-visible:ring-offset-0 border-0 shadow-none"
+                                                    required
+                                                />
+                                            </div>
+                                            <div v-if="processDocumentForm.progress" class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-2">
+                                                <div class="bg-indigo-600 h-2.5 rounded-full" :style="{ width: processDocumentForm.progress.percentage + '%' }"></div>
+                                            </div>
+                                            <div v-if="processDocumentForm.errors.file" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                                {{ processDocumentForm.errors.file }}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <Label for="processDocumentDescription" class="text-sm font-medium">Descrição (Opcional)</Label>
+                                            <Textarea
+                                                id="processDocumentDescription"
+                                                v-model="processDocumentForm.description"
+                                                placeholder="Descrição breve do documento..."
+                                                rows="3"
+                                                class="mt-1 text-sm"
+                                            />
+                                            <div v-if="processDocumentForm.errors.description" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                                {{ processDocumentForm.errors.description }}
+                                            </div>
+                                        </div>
+                                        <DialogFooter class="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+                                            <DialogClose as-child>
+                                                <Button variant="outline" type="button" @click="showUploadProcessDocumentDialog = false; processDocumentForm.reset(); if(processDocumentFileInputRef) processDocumentFileInputRef.value = ''; processDocumentForm.clearErrors();">Cancelar</Button>
+                                            </DialogClose>
+                                            <Button type="submit" :disabled="processDocumentForm.processing">
+                                                <UploadCloud class="mr-2 h-4 w-4" v-if="!processDocumentForm.processing" />
+                                                <svg v-else class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                {{ processDocumentForm.processing ? 'Enviando...' : 'Enviar Documento' }}
+                                            </Button>
+                                        </DialogFooter>
+                                    </form>
+                                </DialogContent>
+                            </Dialog>
                         </div>
-                         <div v-if="documents.length > 0" class="space-y-3">
-                            <Card v-for="doc in documents" :key="doc.id" class="hover:shadow-md transition-shadow">
+                         <div v-if="process.documents && process.documents.length > 0" class="space-y-3">
+                            <Card v-for="doc in process.documents" :key="doc.id" class="hover:shadow-md transition-shadow">
                                 <CardContent class="p-3 flex items-center justify-between gap-3">
                                     <div class="flex items-center gap-3 min-w-0">
                                         <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
@@ -555,7 +666,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                                                 <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
                                             </Button>
                                         </a>
-                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id + ' para processo ID: ' + process.id)" title="Excluir documento" :disabled="isArchived">
+                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="openDeleteProcessDocumentDialog(doc)" title="Excluir documento" :disabled="isArchived">
                                             <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
                                         </Button>
                                     </div>
@@ -626,6 +737,30 @@ const isArchived = computed(() => !!props.process.archived_at);
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
                         {{ processAnnotationDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showDeleteProcessDocumentDialog" @update:open="showDeleteProcessDocumentDialog = $event">
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Confirmar Exclusão de Documento</DialogTitle>
+                    <DialogDescription v-if="processDocumentToDelete">
+                        Tem certeza de que deseja excluir o documento <strong class="font-medium">"{{ processDocumentToDelete.name }}"</strong>? Esta ação não poderá ser desfeita.
+                    </DialogDescription>
+                    <DialogDescription v-else>
+                        Tem certeza de que deseja excluir este documento? Esta ação não poderá ser desfeita.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+                    <Button variant="outline" type="button" @click="showDeleteProcessDocumentDialog = false; processDocumentToDelete = null;">Cancelar</Button>
+                    <Button variant="destructive" :disabled="processDocumentDeleteForm.processing" @click="submitDeleteProcessDocument">
+                        <svg v-if="processDocumentDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {{ processDocumentDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
                     </Button>
                 </DialogFooter>
             </DialogContent>

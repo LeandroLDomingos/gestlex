@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Process;
+use App\Models\ProcessDocument;
 use App\Models\User;
 use App\Models\Contact;
 use App\Models\ProcessAnnotation;
 use App\Models\ProcessHistoryEntry; // Certifique-se que está importado
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Support\Facades\DB;
@@ -656,6 +658,77 @@ class ProcessController extends Controller
         } catch (\Exception $e) {
             Log::error("Erro ao excluir anotação {$annotation->id} do processo {$process->id}: " . $e->getMessage());
             return Redirect::back()->with('error', 'Ocorreu um erro ao excluir a anotação.');
+        }
+    }
+    // --- MÉTODOS PARA DOCUMENTOS DE PROCESSO ---
+    public function storeProcessDocument(Request $request, Process $process)
+    {
+        $data = $request->validate([
+            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,txt|max:20480', // Max 20MB
+            'description' => 'nullable|string|max:255',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $file = $request->file('file');
+            // Usar o nome original do arquivo com um prefixo de timestamp para evitar colisões
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs("process_documents/{$process->id}", $fileName, 'public');
+
+            if (!$path) throw new \Exception("Falha ao armazenar o arquivo.");
+
+            $process->documents()->create([
+                'uploader_user_id' => auth()->id(),
+                'name' => $file->getClientOriginalName(), // Salva o nome original para exibição
+                'path' => $path,
+                'mime_type' => $file->getMimeType(),
+                'size' => $file->getSize(),
+                'description' => $data['description'],
+            ]);
+            
+            $process->historyEntries()->create([
+                'action' => 'Documento Adicionado',
+                'description' => "Documento \"{$file->getClientOriginalName()}\" foi adicionado ao caso.",
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('processes.show', $process->id)->with('success', 'Documento enviado com sucesso!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao enviar documento para o processo {$process->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            if (isset($path) && Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
+            }
+            return back()->with('error', 'Falha ao enviar documento. Verifique o tipo e tamanho do arquivo.');
+        }
+    }
+
+    public function destroyProcessDocument(Request $request, Process $process, ProcessDocument $document)
+    {
+        if ($document->process_id !== $process->id) {
+            return Redirect::back()->with('error', 'Documento não pertence a este processo.');
+        }
+        DB::beginTransaction();
+        try {
+            $documentName = $document->name;
+            if ($document->path && Storage::disk('public')->exists($document->path)) {
+                Storage::disk('public')->delete($document->path);
+            }
+            $document->delete();
+
+            $process->historyEntries()->create([
+                'action' => 'Documento Excluído',
+                'description' => "Documento \"{$documentName}\" foi excluído do caso.",
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('processes.show', $process->id)->with('success', 'Documento excluído com sucesso.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao excluir documento {$document->id} do processo {$process->id}: " . $e->getMessage());
+            return back()->with('error', 'Falha ao excluir documento.');
         }
     }
 }

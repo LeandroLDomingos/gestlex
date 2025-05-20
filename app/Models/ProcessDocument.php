@@ -2,32 +2,44 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Concerns\HasUuids; // Se 'id' for UUID
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Storage; // Para gerar URLs de acesso, se necessário
+use Illuminate\Support\Facades\Storage; // Importar Storage
 
 class ProcessDocument extends Model
 {
     use HasFactory;
-    use HasUuids; // Remova se 'id' não for UUID
+    use HasUuids; // Se estiver usando UUIDs para a PK desta tabela
 
     protected $fillable = [
         'process_id',
         'uploader_user_id',
-        'name',
-        'path',
+        'name',         // Nome original do arquivo
+        'path',         // Caminho do arquivo no disco de storage (ex: 'process_documents/uuid_processo/nome_arquivo.pdf')
         'mime_type',
         'size',
         'description',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array
+     */
     protected $casts = [
+        'process_id' => 'string', // Se process.id for UUID
+        'uploader_user_id' => 'string', // Se user.id for UUID
         'size' => 'integer',
-        'process_id' => 'string', // Se UUID
-        'uploader_user_id' => 'string', // Se UUID
     ];
+
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = ['url']; // Adiciona o acessor 'url' à serialização do modelo
 
     /**
      * Get the process that owns the document.
@@ -46,33 +58,15 @@ class ProcessDocument extends Model
     }
 
     /**
-     * Accessor for the public URL of the document.
-     * Certifique-se de que seu disco de storage (ex: 'public') está configurado
-     * e que você executou `php artisan storage:link`.
+     * Get the publicly accessible URL for the document.
+     * NOVO ACESSOR
      */
     public function getUrlAttribute(): ?string
     {
         if ($this->path) {
-            // Assumindo que você está usando o disco 'public'
-            // Se usar outro disco (ex: S3), a lógica para gerar URL será diferente.
+            // Assumindo que você está usando o disco 'public' e que o link simbólico foi criado
             return Storage::disk('public')->url($this->path);
         }
         return null;
-    }
-
-    /**
-     * Accessor for a user-friendly file size.
-     */
-    public function getFormattedSizeAttribute(): string
-    {
-        if (is_null($this->size)) {
-            return 'N/A';
-        }
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $bytes = $this->size;
-        for ($i = 0; $bytes >= 1024 && $i < count($units) - 1; $i++) {
-            $bytes /= 1024;
-        }
-        return round($bytes, 2) . ' ' . $units[$i];
     }
 }
