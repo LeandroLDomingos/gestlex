@@ -28,5 +28,7 @@ Route::delete('/contacts/{contact}/documents/{document}', [ContactController::cl
 Route::resource('contacts', ContactController::class);
 Route::resource('processes', ProcessController::class);
 
+Route::patch('/processes/{process}/update-stage', [ProcessController::class, 'updateStage'])->name('processes.updateStage');
+
 require __DIR__ . '/settings.php';
 require __DIR__ . '/auth.php';

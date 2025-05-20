@@ -13,66 +13,83 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter } from 'lucide-vue-next'; // Adicionado Filter, ListFilter, ChevronDown
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge'; // Importado Badge
+
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon } from 'lucide-vue-next';
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
-// Helper para Ziggy
 const RGlobal = (window as any).route;
 const route = (name?: string, params?: any, absolute?: boolean): string => {
-    if (typeof RGlobal === 'function') {
-        return RGlobal(name, params, absolute);
-    }
+    if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
     console.warn(`Helper de rota Ziggy não encontrado para a rota: ${name}. Usando fallback.`);
     let url = `/${name?.replace(/\./g, '/') || ''}`;
     if (params) {
         if (typeof params === 'object' && params !== null && !Array.isArray(params)) {
             Object.keys(params).forEach(key => {
-                const paramPlaceholder = `:${key}`;
-                const paramPlaceholderBraces = `{${key}}`;
-                if (url.includes(paramPlaceholder)) {
-                    url = url.replace(paramPlaceholder, String(params[key]));
-                } else if (url.includes(paramPlaceholderBraces)) {
-                    url = url.replace(paramPlaceholderBraces, String(params[key]));
-                } else if (Object.keys(params).length === 1 && !url.includes(String(params[key]))) {
+                const paramPlaceholder = `:${key}`; const paramPlaceholderBraces = `{${key}}`;
+                if (url.includes(paramPlaceholder)) { url = url.replace(paramPlaceholder, String(params[key])); }
+                else if (url.includes(paramPlaceholderBraces)) { url = url.replace(paramPlaceholderBraces, String(params[key])); }
+                else if (Object.keys(params).length === 1 && !url.includes(String(params[key]))) {
                     const paramValueString = String(params[key]);
-                    if (url.split('/').pop() !== paramValueString) {
-                        url += `/${paramValueString}`;
-                    }
+                    if (url.split('/').pop() !== paramValueString) { url += `/${paramValueString}`; }
                 }
             });
-        } else if (typeof params !== 'object') {
-             url += `/${params}`;
-        }
+        } else if (typeof params !== 'object') { url += `/${params}`; }
     }
     return url;
 };
 
-// Tipos específicos para Processos
 interface User {
     id: number | string;
     name: string;
 }
-// Supondo que um processo pode ter um contato associado
 interface RelatedContact {
     id: number | string;
-    name: string; // Ou o campo relevante para exibir o nome do contato
+    name: string;
+    business_name?: string;
+    type?: 'physical' | 'legal';
 }
 interface Process {
     id: string;
-    title?: string; // Título pode ser opcional se as colunas mudarem
-    pendencies?: string | number | null; // Ex: "3 pendências" ou número
-    contact: RelatedContact | null; // Contato associado ao processo
+    title?: string;
+    pendencies?: string | number | null;
+    contact: RelatedContact | null;
     responsible: User | null;
-    status: string | null; // Situação
-    last_update: string; // Última atualização (data)
-    tags: string[] | null; // Array de tags
-    workflow: 'prospecting' | 'consultative' | 'administrative' | 'judicial'; // Mantido para filtro
-    stage_name?: string; // Nome do estágio atual
-    // Outros campos que você possa precisar
+    status: string | null;
+    updated_at: string;
+    tags: string[] | null; // Mantido na interface, mas não mais na tabela
+    workflow: string;
+    workflow_label?: string;
+    stage: number;
+    stage_label?: string;
     origin?: string | null;
     negotiated_value?: number | string | null;
     created_at: string;
+    priority?: 'low' | 'medium' | 'high';
+    priority_label?: string; // Label da prioridade vindo do backend
+}
+
+interface WorkflowData {
+    key: string;
+    label: string;
+    count: number;
+    stages: { key: number; label: string }[];
+}
+
+interface SelectOption {
+    key: string | number;
+    label: string;
 }
 
 interface ProcessIndexProps {
@@ -80,101 +97,123 @@ interface ProcessIndexProps {
     filters?: {
         search?: string;
         workflow?: Process['workflow'];
-        stage?: string; // Ou número, dependendo de como os estágios são identificados
+        stage?: number;
+        responsible_id?: string | number;
+        priority?: string;
+        status?: string;
+        date_from?: string;
+        date_to?: string;
     };
-    sortBy?: string;
-    sortDirection?: 'asc' | 'desc';
-    // Dados para os fluxos e estágios (viriam do backend ou seriam definidos aqui)
-    workflows?: { key: Process['workflow']; label: string; count: number; stages: {key: string; label: string}[] }[];
+    workflows?: WorkflowData[];
+    currentWorkflowStages?: { key: number; label: string }[];
+    allProcessesCount?: number;
+    usersForFilter?: User[];
+    statusesForFilter?: SelectOption[];
+    prioritiesForFilter?: SelectOption[];
 }
 
-const props = withDefaults(defineProps<ProcessIndexProps>(), {
-    filters: () => ({}),
-    workflows: () => [ // Dados de exemplo para workflows e estágios
-        { key: 'prospecting', label: 'Prospecção', count: 0, stages: [
-            { key: 'initial_contact', label: 'Contato inicial'},
-            { key: 'document_collection', label: 'Coleta documental'},
-            { key: 'legal_assessment', label: 'Avaliação jurídica'},
-            { key: 'proposal_submission', label: 'Envio de proposta'},
-            { key: 'negotiation', label: 'Negociação'},
-        ]},
-        { key: 'consultative', label: 'Consultivo', count: 0, stages: [
-            { key: 'briefing', label: 'Briefing'},
-            { key: 'analysis', label: 'Análise'},
-            { key: 'opinion', label: 'Parecer'},
-        ]},
-        { key: 'administrative', label: 'Administrativo', count: 19, stages: [ /* ... */ ]},
-        { key: 'judicial', label: 'Judicial', count: 2, stages: [ /* ... */ ]},
-    ]
-});
+const props = defineProps<ProcessIndexProps>();
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Painel', href: route('dashboard') },
-    { title: 'Casos', href: route('processes.index') }, // Mudado para "Casos"
+    { title: 'Casos', href: route('processes.index') },
 ];
 
-const searchTerm = ref(props.filters?.search || '');
-const activeWorkflow = ref<Process['workflow'] | null>(props.filters?.workflow || props.workflows?.[0]?.key || null);
-const activeStage = ref<string | null>(props.filters?.stage || null);
-
 const page = usePage();
-// A ordenação padrão agora é por "Contato" (nome do contato associado) ou "Última atualização"
-const sortColumn = ref<string>(props.sortBy || (page.props.ziggy?.query?.sort_by as string) || 'last_update');
-const sortDirection = ref<'asc' | 'desc'>((props.sortDirection || (page.props.ziggy?.query?.sort_direction as 'asc' | 'desc') || 'desc'));
+const initialFilters = props.filters || {};
 
-// Colunas ordenáveis (chave do frontend -> nome da coluna no backend)
-// Ajustar para as novas colunas. Ordenar por "Contato" (nome) ou "Responsável" (nome) exigirá joins no backend.
-const sortableColumns = {
-    // 'pendencies': 'pendencies_count', // Exemplo, se pendencies for um contador
-    contact_name: 'contact.name', // Exemplo, se o backend suportar ordenação por relacionamento
-    responsible_name: 'responsible.name', // Exemplo
+const searchTerm = ref(initialFilters.search || '');
+const activeWorkflow = ref<string | null>(initialFilters.workflow || null);
+const activeStage = ref<number | null>(initialFilters.stage || null);
+
+const filterByResponsible = ref<string | null>(initialFilters.responsible_id ? String(initialFilters.responsible_id) : null);
+const filterByPriority = ref<string | null>(initialFilters.priority || null);
+const filterByStatus = ref<string | null>(initialFilters.status || null);
+const filterByDateFrom = ref<string | null>(initialFilters.date_from || null);
+const filterByDateTo = ref<string | null>(initialFilters.date_to || null);
+
+const initialSortBy = (page.props.ziggy?.query?.sort_by as string) || 'updated_at';
+const initialSortDirection = (page.props.ziggy?.query?.sort_direction as 'asc' | 'desc') || 'desc';
+
+const sortColumn = ref<string>(initialSortBy);
+const sortDirection = ref<'asc' | 'desc'>(initialSortDirection);
+
+const sortableColumns: Record<string, string> = {
+    pendencies: 'pendencies_count',
+    contact_name: 'contact.name',
+    responsible_name: 'responsible.name',
+    stage: 'stage',
     status: 'status',
-    last_update: 'last_update',
-    // 'tag': 'tags', // Ordenar por tags pode ser complexo
-} as const;
+    updated_at: 'updated_at',
+    title: 'title',
+    workflow: 'workflow',
+    priority: 'priority', // Adicionado para ordenação
+    created_at: 'created_at',
+};
 
-type SortableColumnKey = keyof typeof sortableColumns | string; // Permitir string para colunas não diretamente em sortableColumns
+type SortableColumnKey = keyof typeof sortableColumns | string;
 
-// --- FUNÇÕES AUXILIARES ---
 const displayValue = (value: any, fallback: string = 'N/A') => {
     if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
         return fallback;
     }
     if (Array.isArray(value)) return value.join(', ');
-    return value;
+    return String(value);
 };
 
 const formatDateForTable = (dateString: string | null | undefined): string => {
     if (!dateString) return 'N/A';
     try {
-        const date = new Date(dateString.includes('T') ? dateString : dateString + 'T00:00:00Z');
+        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
         return date.toLocaleDateString('pt-BR', {
-            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
         });
-    } catch (e) {
-        return dateString;
-    }
+    } catch (e) { return dateString; }
 };
-// --- FIM DAS FUNÇÕES AUXILIARES ---
 
-const currentStages = computed(() => {
-    const wf = props.workflows?.find(w => w.key === activeWorkflow.value);
-    return wf ? wf.stages : [];
+const currentStagesForFilter = computed(() => {
+    if (activeWorkflow.value && props.workflows) {
+        const wf = props.workflows.find(w => w.key === activeWorkflow.value);
+        return wf ? wf.stages : [];
+    }
+    return props.currentWorkflowStages || [];
 });
 
-function selectWorkflow(workflowKey: Process['workflow']) {
-    activeWorkflow.value = workflowKey;
-    activeStage.value = null; // Resetar estágio ao mudar workflow
+// Função para obter a variante da Badge de prioridade
+const getPriorityVariant = (priorityValue?: 'low' | 'medium' | 'high' | null): 'destructive' | 'secondary' | 'outline' => {
+    if (!priorityValue) return 'outline';
+    switch (priorityValue.toLowerCase()) {
+        case 'high': return 'destructive';
+        case 'medium': return 'secondary';
+        case 'low': return 'outline';
+        default: return 'outline';
+    }
+};
+
+function selectAllCases() {
+    activeWorkflow.value = null;
+    activeStage.value = null;
     applyAllFilters();
 }
 
-function selectStage(stageKey: string | null) {
+function selectWorkflow(workflowKey: string) {
+    if (activeWorkflow.value === workflowKey) {
+        activeWorkflow.value = null;
+        activeStage.value = null;
+    } else {
+        activeWorkflow.value = workflowKey;
+        activeStage.value = null;
+    }
+    applyAllFilters();
+}
+
+function selectStage(stageKey: number | null) {
     activeStage.value = stageKey;
     applyAllFilters();
 }
 
 const handleSort = (columnKey: SortableColumnKey) => {
-    const backendColumnName = (sortableColumns as Record<string, string>)[columnKey] || columnKey;
+    const backendColumnName = sortableColumns[columnKey] || columnKey;
     if (sortColumn.value === backendColumnName) {
         sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
     } else {
@@ -184,33 +223,47 @@ const handleSort = (columnKey: SortableColumnKey) => {
     applyAllFilters();
 };
 
-const applyAllFilters = () => {
-    const queryParams: Record<string, string | number | undefined> = {
-        ...(page.props.ziggy?.query || {}),
+const applyAllFilters = (resetPage = true) => {
+    const queryParams: { [key: string]: string | number | undefined } = {
         sort_by: sortColumn.value,
         sort_direction: sortDirection.value,
-        search: searchTerm.value || undefined,
-        workflow: activeWorkflow.value || undefined,
-        stage: activeStage.value || undefined,
     };
-    delete queryParams.page;
 
-    Object.keys(queryParams).forEach(key => {
-        if (queryParams[key] === undefined || queryParams[key] === '') {
-            delete queryParams[key];
-        }
+    if (searchTerm.value) queryParams.search = searchTerm.value;
+    if (activeWorkflow.value) queryParams.workflow = activeWorkflow.value;
+    if (activeStage.value !== null) queryParams.stage = activeStage.value;
+
+    if (filterByResponsible.value && filterByResponsible.value !== 'null') {
+        queryParams.responsible_id = filterByResponsible.value;
+    }
+    if (filterByPriority.value && filterByPriority.value !== 'null') {
+        queryParams.priority = filterByPriority.value;
+    }
+    if (filterByStatus.value && filterByStatus.value !== 'null') {
+        queryParams.status = filterByStatus.value;
+    }
+    if (filterByDateFrom.value) {
+        queryParams.date_from = filterByDateFrom.value;
+    }
+    if (filterByDateTo.value) {
+        queryParams.date_to = filterByDateTo.value;
+    }
+
+    router.get(route('processes.index'), queryParams as any, {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
     });
-
-    router.get(
-        route('processes.index'),
-        queryParams as any,
-        {
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-        }
-    );
 };
+
+function resetAdvancedFilters() {
+    filterByResponsible.value = null;
+    filterByPriority.value = null;
+    filterByStatus.value = null;
+    filterByDateFrom.value = null;
+    filterByDateTo.value = null;
+    applyAllFilters();
+}
 
 let searchTimeout: number | undefined;
 watch(searchTerm, () => {
@@ -220,14 +273,13 @@ watch(searchTerm, () => {
     }, 300);
 });
 
-// Definição dos cabeçalhos da tabela conforme a imagem
 const tableHeaders: { key: string; label: string; sortable: boolean, class?: string }[] = [
     { key: 'pendencies', label: 'Pendências', sortable: true, class: 'w-[15%]' },
-    { key: 'contact', label: 'Contato', sortable: true, class: 'w-[25%]' }, // Ordenar por contact.name
-    { key: 'responsible', label: 'Responsável', sortable: true, class: 'w-[15%]' }, // Ordenar por responsible.name
-    { key: 'status', label: 'Situação', sortable: true, class: 'w-[15%]' },
-    { key: 'last_update', label: 'Última atualização', sortable: true, class: 'w-[20%]' },
-    { key: 'tags', label: 'Tag', sortable: false, class: 'w-[10%]' }, // Ordenar por tags é complexo
+    { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[25%]' },
+    { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
+    { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[15%]' },
+    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' }, // Ajustado para updated_at
+    { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[15%]' }, // Alterado de 'tags' para 'priority'
 ];
 
 </script>
@@ -236,17 +288,44 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
     <Head title="Casos" />
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full">
-            <aside class="w-64 bg-gray-50 dark:bg-gray-800 p-4 space-y-2 border-r dark:border-gray-700 flex-shrink-0">
-                <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2">Fluxos</h2>
+            <aside class="w-72 bg-gray-50 dark:bg-gray-800 p-4 space-y-1 border-r dark:border-gray-700 flex-shrink-0 overflow-y-auto">
+                <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">Fluxos</h2>
+                <Button
+                    @click="selectAllCases"
+                    :variant="!activeWorkflow ? 'default' : 'ghost'"
+                    class="w-full justify-between text-sm h-9 mb-1"
+                >
+                    <span>Todos os Casos</span>
+                    <span
+                        :class="[
+                            'ml-auto text-xs px-1.5 py-0.5 rounded-full',
+                            !activeWorkflow
+                                ? 'bg-white/20 text-white dark:bg-black/30 dark:text-gray-200'
+                                : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                        ]"
+                    >
+                        {{ props.allProcessesCount ?? '...' }}
+                    </span>
+                </Button>
+
                 <Button
                     v-for="wf in props.workflows"
                     :key="wf.key"
                     @click="selectWorkflow(wf.key)"
                     :variant="activeWorkflow === wf.key ? 'default' : 'ghost'"
-                    class="w-full justify-start"
+                    class="w-full justify-between text-sm h-9 mb-1"
                 >
-                    {{ wf.label }}
-                    <span class="ml-auto text-xs bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded-full">{{ wf.count }}</span>
+                    <span>{{ wf.label }}</span>
+                    <span
+                        :class="[
+                            'ml-auto text-xs px-1.5 py-0.5 rounded-full',
+                            activeWorkflow === wf.key
+                                ? 'bg-white/20 text-white dark:bg-black/30 dark:text-gray-200'
+                                : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200'
+                        ]"
+                    >
+                        {{ wf.count }}
+                    </span>
                 </Button>
             </aside>
 
@@ -254,15 +333,21 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                 <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <h1 class="text-2xl font-semibold text-gray-800 dark:text-gray-100">
                         Casos
+                        <span v-if="activeWorkflow && props.workflows" class="text-lg text-gray-600 dark:text-gray-400 font-normal ml-2">
+                            ({{ props.workflows.find(w => w.key === activeWorkflow)?.label || activeWorkflow }})
+                        </span>
+                         <span v-if="activeStage && currentStagesForFilter.length" class="text-lg text-gray-500 dark:text-gray-500 font-normal ml-1">
+                            / {{ currentStagesForFilter.find(s => s.key == activeStage)?.label || activeStage }}
+                        </span>
                     </h1>
                     <div class="flex items-center gap-2 w-full sm:w-auto">
                         <div class="relative flex-grow sm:flex-grow-0">
                             <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
                             <Input type="text" v-model="searchTerm" placeholder="Buscar casos..."
-                                class="block w-full sm:w-64 pl-10 pr-3 py-2" />
+                                class="block w-full sm:w-64 pl-10 pr-3 py-2 h-10" />
                         </div>
                         <Link :href="route('processes.create')">
-                            <Button variant="default" size="default">
+                            <Button variant="default" size="default" class="h-10">
                                 <PlusCircle class="mr-2 h-4 w-4" />
                                 Novo Caso
                             </Button>
@@ -270,41 +355,127 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                     </div>
                 </div>
 
-                <div v-if="activeWorkflow && currentStages.length" class="bg-white dark:bg-gray-800 p-3 rounded-md shadow flex space-x-2 overflow-x-auto">
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 self-center mr-2 whitespace-nowrap">
-                        Fluxo {{ props.workflows?.find(w => w.key === activeWorkflow)?.label }}:
+                <div v-if="activeWorkflow && currentStagesForFilter.length" class="bg-white dark:bg-gray-800 p-2 rounded-md shadow flex items-center space-x-2 overflow-x-auto no-scrollbar">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 self-center mr-2 whitespace-nowrap pl-1">
+                        Estágios:
                     </span>
                     <Button
-                        v-for="stage in currentStages"
-                        :key="stage.key"
-                        @click="selectStage(stage.key)"
-                        :variant="activeStage === stage.key ? 'secondary' : 'outline'"
+                        v-for="stageItem in currentStagesForFilter"
+                        :key="stageItem.key"
+                        @click="selectStage(stageItem.key)"
+                        :variant="activeStage === stageItem.key ? 'secondary' : 'ghost'"
                         size="sm"
-                        class="whitespace-nowrap"
+                        class="whitespace-nowrap h-8 text-xs"
                     >
-                        {{ stage.label }}
+                        {{ stageItem.label }}
+                    </Button>
+                     <Button
+                        v-if="activeStage !== null"
+                        @click="selectStage(null)"
+                        variant="ghost"
+                        size="sm"
+                        class="whitespace-nowrap h-8 text-xs text-muted-foreground hover:text-accent-foreground"
+                        title="Limpar filtro de estágio"
+                    >
+                        <X class="h-3 w-3 mr-1" /> Limpar Estágio
                     </Button>
                 </div>
 
-                <div class="flex justify-between items-center mb-0">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-0 -mt-2 gap-2">
                     <div>
-                        <Button variant="ghost" size="sm">
-                            <ListFilter class="h-4 w-4 mr-2" />
-                            Filtros
-                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger as-child>
+                                <Button variant="outline" size="sm" class="h-9 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+                                    <SlidersHorizontal class="h-4 w-4 mr-2" />
+                                    Filtros Avançados
+                                    <ChevronDown class="h-4 w-4 ml-1 opacity-70" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent class="w-80 p-3 space-y-3" align="start">
+                                <DropdownMenuLabel>Filtros Adicionais</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <div class="space-y-4 px-1">
+                                    <div>
+                                        <Label for="filterResponsible" class="text-xs font-medium mb-1 block">Responsável</Label>
+                                        <Select v-model="filterByResponsible">
+                                            <SelectTrigger id="filterResponsible" class="h-9">
+                                                <SelectValue placeholder="Todos" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="null">Todos</SelectItem>
+                                                <SelectItem v-for="user in props.usersForFilter" :key="user.id" :value="String(user.id)">
+                                                    {{ user.name }}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label for="filterPriority" class="text-xs font-medium mb-1 block">Prioridade</Label>
+                                        <Select v-model="filterByPriority">
+                                            <SelectTrigger id="filterPriority" class="h-9">
+                                                <SelectValue placeholder="Todas" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="null">Todas</SelectItem>
+                                                <SelectItem v-for="prio in props.prioritiesForFilter" :key="prio.key" :value="String(prio.key)">
+                                                    {{ prio.label }}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label for="filterStatus" class="text-xs font-medium mb-1 block">Status do Caso</Label>
+                                        <Select v-model="filterByStatus">
+                                            <SelectTrigger id="filterStatus" class="h-9">
+                                                <SelectValue placeholder="Todos" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="null">Todos</SelectItem>
+                                                 <SelectItem v-for="stat in props.statusesForFilter" :key="stat.key" :value="String(stat.key)">
+                                                    {{ stat.label }}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <Label for="filterDateFrom" class="text-xs font-medium mb-1 block">Criado de:</Label>
+                                            <Input type="date" id="filterDateFrom" v-model="filterByDateFrom" class="h-9 text-sm"/>
+                                        </div>
+                                        <div>
+                                            <Label for="filterDateTo" class="text-xs font-medium mb-1 block">Criado até:</Label>
+                                            <Input type="date" id="filterDateTo" v-model="filterByDateTo" class="h-9 text-sm"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <DropdownMenuSeparator />
+                                <div class="flex justify-end space-x-2 px-1 pt-2">
+                                     <Button variant="ghost" size="sm" @click="resetAdvancedFilters" class="text-xs h-8">Limpar</Button>
+                                     <DropdownMenuItem as-child>
+                                        <Button @click="applyAllFilters()" size="sm" class="text-xs h-8">Aplicar Filtros</Button>
+                                     </DropdownMenuItem>
+                                </div>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
-                    <div>
+                    <div class="flex items-center">
                         <span class="text-sm text-gray-600 dark:text-gray-400">Ordenar por: </span>
                         <select
                             v-model="sortColumn"
-                            @change="applyAllFilters"
-                            class="ml-1 text-sm p-1 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                            @change="applyAllFilters()"
+                            class="ml-2 text-sm p-1.5 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-md focus:ring-indigo-500 focus:border-indigo-500 h-9"
                         >
+                            <option value="updated_at">Última Atualização</option>
+                            <option value="created_at">Data de Criação</option>
                             <option value="contact.name">Contato</option>
-                            <option value="last_update">Última Atualização</option>
-                            <option value="status">Situação</option>
-                            </select>
-                        <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1">
+                            <option value="responsible.name">Responsável</option>
+                            <option value="stage">Estágio</option>
+                            <option value="title">Título</option>
+                            <option value="workflow">Workflow</option>
+                            <option value="priority">Prioridade</option>
+                            <option value="status">Status do Caso</option>
+                        </select>
+                        <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1 h-9 w-9">
                             <ArrowUpDown class="h-4 w-4" :class="{'transform rotate-180': sortDirection === 'desc'}" />
                         </Button>
                     </div>
@@ -319,43 +490,42 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                     <TableHead v-for="header in tableHeaders" :key="header.key"
                                         @click="header.sortable ? handleSort(header.key) : null"
                                         :class="[
-                                            'px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider',
+                                            'px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider',
                                             header.sortable ? 'cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors duration-150 group' : '',
                                             header.class
                                         ]">
                                         {{ header.label }}
-                                        <ArrowUpDown v-if="header.sortable && sortColumn === (sortableColumns[header.key as SortableColumnKey] || header.key)" class="inline h-4 w-4 ml-1 align-middle" :class="{'transform rotate-180': sortDirection === 'desc'}" />
-                                        <ArrowUpDown v-else-if="header.sortable" class="inline h-4 w-4 ml-1 align-middle opacity-30 group-hover:opacity-70" />
+                                        <ArrowUpDown v-if="header.sortable && sortColumn === (sortableColumns[header.key as SortableColumnKey] || header.key)" class="inline h-3 w-3 ml-1 align-middle" :class="{'transform rotate-180': sortDirection === 'desc'}" />
+                                        <ArrowUpDown v-else-if="header.sortable" class="inline h-3 w-3 ml-1 align-middle opacity-30 group-hover:opacity-70" />
                                     </TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody class="divide-y divide-gray-200 dark:divide-gray-700">
                                 <template v-if="props.processes && props.processes.data.length">
-                                    <Link as="tr" v-for="process in props.processes.data" :key="process.id"
-                                        :href="route('processes.show', process.id)"
+                                    <Link as="tr" v-for="process_item in props.processes.data" :key="process_item.id"
+                                        :href="route('processes.show', process_item.id)"
                                         class="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors duration-150">
                                         
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {{ displayValue(process.pendencies, 'Nenhuma') }}
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {{ displayValue(process_item.pendencies, 'Nenhuma') }}
                                         </TableCell>
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {{ displayValue(process.contact?.name) }}
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {{ displayValue(process_item.contact?.name || process_item.contact?.business_name) }}
                                         </TableCell>
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {{ displayValue(process.responsible?.name) }}
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {{ displayValue(process_item.responsible?.name) }}
                                         </TableCell>
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {{ displayValue(process.status) }}
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {{ displayValue(process_item.stage_label || process_item.stage) }}
                                         </TableCell>
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {{ formatDateForTable(process.last_update) }}
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {{ formatDateForTable(process_item.updated_at) }}
                                         </TableCell>
-                                        <TableCell class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            <span v-for="(tag, index) in process.tags" :key="index"
-                                                  class="mr-1 mb-1 inline-block px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
-                                                {{ tag }}
-                                            </span>
-                                            <span v-if="!process.tags || process.tags.length === 0">N/A</span>
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            <Badge v-if="process_item.priority" :variant="getPriorityVariant(process_item.priority)" class="text-xs">
+                                                {{ process_item.priority_label || process_item.priority }}
+                                            </Badge>
+                                            <span v-else>N/A</span>
                                         </TableCell>
                                     </Link>
                                 </template>
@@ -365,12 +535,12 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                             <Search class="mb-2 h-12 w-12 opacity-50" />
                                             <p class="text-lg font-medium">Nenhum caso encontrado.</p>
                                             <p class="text-sm">
-                                                {{ searchTerm || activeWorkflow || activeStage ? 'Tente refinar seus filtros ou ' : 'Você pode ' }}
-                                                <Link v-if="searchTerm || activeWorkflow || activeStage" :href="route('processes.index')"
-                                                    @click="searchTerm = ''; activeWorkflow = null; activeStage = null; applyAllFilters();"
-                                                    class="text-indigo-600 dark:text-indigo-400 hover:underline">limpar os filtros
+                                                {{ searchTerm || activeWorkflow || activeStage || filterByResponsible || filterByPriority || filterByStatus || filterByDateFrom || filterByDateTo ? 'Tente refinar seus filtros ou ' : 'Você pode ' }}
+                                                <Link v-if="searchTerm || activeWorkflow || activeStage || filterByResponsible || filterByPriority || filterByStatus || filterByDateFrom || filterByDateTo" :href="route('processes.index')"
+                                                      @click.prevent="searchTerm = ''; activeWorkflow = null; activeStage = null; filterByResponsible = null; filterByPriority = null; filterByStatus = null; filterByDateFrom = null; filterByDateTo = null; applyAllFilters();"
+                                                      class="text-indigo-600 dark:text-indigo-400 hover:underline">limpar os filtros
                                                 </Link>
-                                                {{ searchTerm || activeWorkflow || activeStage ? ' para ver todos os casos, ou ' : '' }}
+                                                {{ searchTerm || activeWorkflow || activeStage || filterByResponsible || filterByPriority || filterByStatus || filterByDateFrom || filterByDateTo ? ' para ver todos os casos, ou ' : '' }}
                                                 <Link :href="route('processes.create')" class="text-indigo-600 dark:text-indigo-400 hover:underline">
                                                     crie um novo caso
                                                 </Link>.
@@ -396,5 +566,12 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
 <style scoped>
 .select-none {
     user-select: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
 }
 </style>

@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany; // Certifique-se de importar HasMany
+use Illuminate\Database\Eloquent\Relations\HasMany;
 // Importar outros modelos necessários
 use App\Models\Contact;
+use App\Models\User; // Adicionado para o relacionamento 'responsible'
 use App\Models\ProcessAnnotation;
-use App\Models\Task; // <<< IMPORTAR O MODELO Task
+use App\Models\ProcessDocument; // Adicionado para o relacionamento 'documents'
+use App\Models\Task;
 
 class Process extends Model
 {
@@ -22,10 +24,13 @@ class Process extends Model
         'origin',
         'negotiated_value',
         'description',
-        'responsible_id',
+        'responsible_id', // Chave estrangeira para User
         'workflow',
         'stage',
-        'contact_id',
+        'contact_id',     // Chave estrangeira para Contact
+        'priority',       // <<< ADICIONADO
+        'status',         // <<< ADICIONADO
+        'due_date',       // <<< ADICIONADO
     ];
 
     /**
@@ -36,8 +41,9 @@ class Process extends Model
     protected $casts = [
         'negotiated_value' => 'decimal:2',
         'stage' => 'integer',
-        'responsible_id' => 'string',
-        'contact_id' => 'string',
+        'responsible_id' => 'string', // Se o ID do User for UUID
+        'contact_id' => 'string',     // Se o ID do Contact for UUID
+        'due_date' => 'date',         // <<< ADICIONADO
     ];
 
     /**
@@ -64,25 +70,23 @@ class Process extends Model
         return $this->hasMany(ProcessAnnotation::class, 'process_id', 'id')->latest();
     }
 
-    public function documents(): HasMany // <<< MÉTODO ADICIONADO AQUI
+    /**
+     * Get all of the documents for the Process.
+     */
+    public function documents(): HasMany
     {
-        // 'process_id' é a chave estrangeira na tabela 'process_documents'
-        // 'id' (ou a chave primária do Process) é a chave local
         return $this->hasMany(ProcessDocument::class, 'process_id', 'id')->orderBy('created_at', 'desc');
     }
-
+    
     /**
      * Get all of the tasks for the Process.
      */
-    public function tasks(): HasMany // <<< MÉTODO ADICIONADO/CORRIGIDO AQUI
+    public function tasks(): HasMany
     {
-        // 'process_id' é a chave estrangeira na tabela 'tasks'
-        // 'id' (ou a chave primária do Process) é a chave local
         return $this->hasMany(Task::class, 'process_id', 'id')->orderBy('due_datetime', 'asc')->orderBy('created_at', 'asc');
     }
 
-    // ... (resto do seu modelo Process.php, incluindo constantes e outros métodos) ...
-
+    // Constantes para Workflows
     public const WORKFLOW_PROSPECTING = 'prospecting';
     public const WORKFLOW_CONSULTATIVE = 'consultative';
     public const WORKFLOW_ADMINISTRATIVE = 'administrative';
@@ -95,6 +99,7 @@ class Process extends Model
         self::WORKFLOW_JUDICIAL => 'Judicial',
     ];
 
+    // Constantes para Estágios (Stages)
     public const STAGES_PROSPECTING = [
         1 => 'Contato inicial',
         2 => 'Coleta documental',
@@ -102,7 +107,6 @@ class Process extends Model
         4 => 'Envio de proposta',
         5 => 'Negociação',
     ];
-
     public const STAGES_CONSULTATIVE = [
         1 => 'Briefing',
         2 => 'Análise',
@@ -123,6 +127,32 @@ class Process extends Model
         5 => 'Sentença Jud',
         6 => 'Recursos Jud',
         7 => 'Execução Jud',
+    ];
+
+    // Constantes para Prioridades
+    public const PRIORITY_LOW = 'low';
+    public const PRIORITY_MEDIUM = 'medium';
+    public const PRIORITY_HIGH = 'high';
+
+    public const PRIORITIES = [
+        self::PRIORITY_LOW => 'Baixa',
+        self::PRIORITY_MEDIUM => 'Média',
+        self::PRIORITY_HIGH => 'Alta',
+    ];
+    
+    // Constantes para Status (Exemplo, ajuste conforme necessário)
+    public const STATUS_OPEN = 'Aberto';
+    public const STATUS_IN_PROGRESS = 'Em Andamento';
+    public const STATUS_PENDING_CLIENT = 'Pendente Cliente';
+    public const STATUS_COMPLETED = 'Concluído';
+    public const STATUS_CANCELED = 'Cancelado';
+    // Adicione outros que você usa no seu sistema
+    public const STATUSES = [
+        self::STATUS_OPEN => 'Aberto',
+        self::STATUS_IN_PROGRESS => 'Em Andamento',
+        self::STATUS_PENDING_CLIENT => 'Pendente Cliente',
+        self::STATUS_COMPLETED => 'Concluído',
+        self::STATUS_CANCELED => 'Cancelado',
     ];
 
 
@@ -150,6 +180,41 @@ class Process extends Model
         $stages = self::getStagesForWorkflow($this->workflow);
         return $stages[$this->stage] ?? "Estágio {$this->stage}";
     }
-    protected $appends = ['workflow_label', 'stage_label']; // Adicione esta linha
 
+    /**
+     * Obtém o rótulo da prioridade do processo.
+     */
+    public function getPriorityLabelAttribute(): string
+    {
+        if (is_null($this->priority)) {
+            return 'Não definida';
+        }
+        return self::PRIORITIES[$this->priority] ?? ucfirst((string) $this->priority);
+    }
+    
+    /**
+     * Obtém o rótulo do status do processo.
+     */
+    public function getStatusLabelAttribute(): string
+    {
+        if (is_null($this->status)) {
+            return 'Não definido';
+        }
+        // Se você definir self::STATUSES como no exemplo acima, use-o:
+        return self::STATUSES[$this->status] ?? ucfirst((string) $this->status);
+        // Caso contrário, se status for um texto livre, apenas retorne ele:
+        // return ucfirst((string) $this->status);
+    }
+
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = [
+        'workflow_label', 
+        'stage_label',
+        'priority_label', // Adicionado
+        'status_label',   // Adicionado
+    ];
 }

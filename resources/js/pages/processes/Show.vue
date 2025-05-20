@@ -24,13 +24,18 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
+    DropdownMenuRadioGroup, // Para seleção de estágio
+    DropdownMenuRadioItem,  // Para seleção de estágio
 } from '@/components/ui/dropdown-menu'; // Para o menu de 3 pontos
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive // Ícones adicionados
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon // Ícones adicionados
 } from 'lucide-vue-next';
-import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process';
+// Importando os tipos. Certifique-se que o caminho está correto.
+// Se @/types/process não existir, você pode precisar criar este arquivo ou mover as interfaces para @/types/index.ts
+import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
+// import InputError from '@/Components/InputError.vue'; // Descomente se você tiver e usar este componente
 
 const RGlobal = (window as any).route;
 const route = (name?: string, params?: any, absolute?: boolean): string => {
@@ -53,10 +58,21 @@ const route = (name?: string, params?: any, absolute?: boolean): string => {
     return url;
 };
 
+interface StageOption { // Interface para os estágios disponíveis
+    key: number;
+    label: string;
+}
+
 const props = defineProps<{
-    process: Process;
-    // users: UserReference[];
-    // can: { ... }
+    process: Process; // A interface Process deve incluir workflow_label, stage_label, priority_label, status_label
+    availableStages?: StageOption[]; // Estágios disponíveis para o workflow atual, passados pelo controller
+    // users?: UserReference[]; // Para dropdown de responsáveis em Nova Tarefa
+    // can?: { // Exemplo de permissões
+    // edit_process: boolean;
+    // delete_process: boolean;
+    // add_task: boolean;
+    // add_annotation: boolean;
+    // }
 }>();
 
 const activeMainTab = ref<'tasks' | 'documents' | 'history'>('tasks');
@@ -66,11 +82,22 @@ const showNewAnnotationForm = ref(false);
 const showDeleteProcessDialog = ref(false);
 const processDeleteForm = useForm({});
 
+// Estado para diálogo de exclusão de anotação do processo
+const showDeleteProcessAnnotationDialog = ref(false);
+const processAnnotationToDelete = ref<ProcessAnnotation | null>(null);
+const processAnnotationDeleteForm = useForm({});
+
+// Formulário para atualizar o estágio
+const stageUpdateForm = useForm({
+    stage: props.process.stage, // Inicializa com o estágio atual (key numérica)
+});
+
+
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Painel', href: route('dashboard') },
     { title: 'Casos', href: route('processes.index') },
     { title: props.process.workflow_label || props.process.workflow, href: route('processes.index', { workflow: props.process.workflow }) },
-    { title: props.process.title, href: route('processes.show', props.process.id) },
+    { title: props.process.title || 'Detalhes do Caso', href: route('processes.show', props.process.id) },
 ]);
 
 const formatDate = (dateString: string | null | undefined, includeTime = false): string => {
@@ -80,10 +107,7 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
         const options: Intl.DateTimeFormatOptions = {
             day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
         };
-        if (includeTime) {
-            options.hour = '2-digit';
-            options.minute = '2-digit';
-        }
+        if (includeTime) { options.hour = '2-digit'; options.minute = '2-digit'; }
         return date.toLocaleDateString('pt-BR', options);
     } catch (e) {
         console.error("Erro ao formatar data:", dateString, e);
@@ -91,38 +115,33 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
     }
 };
 
-const formatCurrency = (value: number | null | undefined): string => {
-    if (value === null || typeof value === 'undefined') return 'N/A';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (value: number | string | null | undefined): string => {
+    const numValue = Number(value);
+    if (value === null || typeof value === 'undefined' || isNaN(numValue)) return 'N/A';
+    return numValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-const priorityLabel = computed(() => {
-    if (!props.process.priority) return 'N/A';
-    switch (props.process.priority.toLowerCase()) {
-        case 'high': return 'Alta';
-        case 'medium': return 'Média';
-        case 'low': return 'Baixa';
-        default: return props.process.priority;
-    }
-});
+// Usa diretamente o priority_label que vem do backend (via acessor e $appends)
+const priorityLabel = computed(() => props.process.priority_label || props.process.priority || 'N/A');
 
-const priorityVariant = computed(() => {
+const priorityVariant = computed((): 'destructive' | 'secondary' | 'outline' | 'default' => {
     if (!props.process.priority) return 'outline';
     switch (props.process.priority.toLowerCase()) {
         case 'high': return 'destructive';
-        case 'medium': return 'secondary';
-        case 'low': return 'outline';
+        case 'medium': return 'secondary'; // Ou uma cor como 'warning' se tiver
+        case 'low': return 'outline'; // Ou uma cor mais suave como 'default' ou 'accent'
         default: return 'outline';
     }
 });
 
 const annotationForm = useForm({
     content: '',
-    process_id: props.process.id,
+    // process_id é adicionado na submissão ou já está implícito na rota
 });
 
 function submitAnnotation() {
-    annotationForm.post(route('processes.annotations.store', props.process.id), { // Corrigido para 'processes.annotations.store'
+    // Rota corrigida para 'processes.annotations.store'
+    annotationForm.post(route('processes.annotations.store', props.process.id), {
         preserveScroll: true,
         onSuccess: () => {
             annotationForm.reset('content');
@@ -131,6 +150,8 @@ function submitAnnotation() {
         },
         onError: (errors) => {
             console.error("Erro ao salvar anotação:", errors);
+            // Aqui você pode exibir os erros para o usuário, se necessário
+            // Ex: if (errors.content) { alert(errors.content); }
         }
     });
 }
@@ -141,15 +162,13 @@ function editProcess() {
 }
 
 function archiveProcess() {
-    // Lógica para arquivar o processo (ex: chamada API)
-    // Por enquanto, apenas um console.log
     console.log('Arquivar processo:', props.process.id);
+    alert('Funcionalidade de arquivar ainda não implementada no backend.');
     // Exemplo de como poderia ser com useForm:
     // const archiveForm = useForm({});
-    // archiveForm.patch(route('processes.archive', props.process.id), {
-    //   onSuccess: () => { /* router.reload() ou feedback */ }
+    // archiveForm.patch(route('processes.archive', props.process.id), { // Supondo uma rota PATCH para arquivar
+    // onSuccess: () => { router.reload({ only: ['process'] }); /* ou feedback */ }
     // });
-    alert('Funcionalidade de arquivar ainda não implementada no backend.');
 }
 
 function openDeleteProcessDialog() {
@@ -158,26 +177,74 @@ function openDeleteProcessDialog() {
 
 function submitDeleteProcess() {
     processDeleteForm.delete(route('processes.destroy', props.process.id), {
-        preserveScroll: true,
+        preserveScroll: false, // false para forçar reload completo se o backend redirecionar para a lista
         onSuccess: () => {
             showDeleteProcessDialog.value = false;
-            // O Inertia deve redirecionar para a lista de processos após a exclusão bem-sucedida (configurado no controller)
+            // O backend deve redirecionar para 'processes.index' após a exclusão bem-sucedida
+            // e o Inertia cuidará da navegação.
         },
         onError: (errors) => {
             console.error('Erro ao excluir processo:', errors);
-            // Adicionar feedback de erro, se necessário
+            // Adicionar feedback de erro para o usuário, se necessário
         }
     });
 }
 
+// Funções para exclusão de anotação do processo
+function openDeleteProcessAnnotationDialog(annotation: ProcessAnnotation) {
+    processAnnotationToDelete.value = annotation;
+    showDeleteProcessAnnotationDialog.value = true;
+}
 
-const documents = ref<ProcessDocument[]>(props.process.documents || []);
-const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries || []);
+function submitDeleteProcessAnnotation() {
+    if (!processAnnotationToDelete.value) return;
+    // Rota corrigida para 'processes.annotations.destroy'
+    processAnnotationDeleteForm.delete(route('processes.annotations.destroy', {
+        process: props.process.id, // Passa o ID do processo pai
+        annotation: processAnnotationToDelete.value.id // Passa o ID da anotação a ser excluída
+    }), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showDeleteProcessAnnotationDialog.value = false;
+            processAnnotationToDelete.value = null;
+            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar anotações
+        },
+        onError: (errors) => {
+            console.error('Erro ao excluir anotação do processo:', errors);
+        }
+    });
+}
+
+// Função para atualizar o estágio
+function updateStage(newStageKey: number) {
+    stageUpdateForm.stage = newStageKey; // O v-model no DropdownMenuRadioGroup já atualiza isso
+    stageUpdateForm.patch(route('processes.updateStage', props.process.id), { // Rota PATCH para atualizar estágio
+        preserveScroll: true,
+        onSuccess: () => {
+            router.reload({ only: ['process'] }); // Recarrega a prop 'process' para atualizar stage_label
+        },
+        onError: (errors) => {
+            console.error('Erro ao atualizar estágio:', errors);
+            // Resetar o form para o estágio atual do props em caso de erro para consistência visual
+            stageUpdateForm.stage = props.process.stage;
+            // Adicionar feedback de erro para o usuário, se necessário
+            if (errors.stage) {
+                alert(`Erro ao mudar estágio: ${errors.stage}`);
+            } else {
+                alert('Ocorreu um erro ao tentar atualizar o estágio.');
+            }
+        }
+    });
+}
+
+// Dados para abas (usando diretamente das props)
+const documents = computed(() => props.process.documents || []);
+const historyEntries = computed(() => props.process.history_entries || []);
 
 </script>
 
 <template>
-    <Head :title="`Caso: ${process.title}`" />
+    <Head :title="`Caso: ${process.title || 'Detalhes do Caso'}`" />
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex flex-col lg:flex-row gap-6 p-4 md:p-6 h-[calc(100vh-theme(spacing.16)-theme(spacing.1))] overflow-hidden">
             <div class="w-full lg:w-1/3 xl:w-1/4 space-y-6 flex-shrink-0 overflow-y-auto pr-2 no-scrollbar">
@@ -186,7 +253,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                         <Briefcase v-if="process.workflow_label?.toLowerCase().includes('judicial')" class="h-16 w-16 text-white opacity-75" />
                         <MessageSquare v-else-if="process.workflow_label?.toLowerCase().includes('consultivo')" class="h-16 w-16 text-white opacity-75" />
                         <Zap v-else-if="process.workflow_label?.toLowerCase().includes('prospecção')" class="h-16 w-16 text-white opacity-75" />
-                        <Paperclip v-else class="h-16 w-16 text-white opacity-75" />
+                        <FileText v-else class="h-16 w-16 text-white opacity-75" />
 
                         <div class="absolute top-2 right-2">
                             <DropdownMenu>
@@ -217,11 +284,42 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                     </div>
                     <CardContent class="p-4 space-y-2">
                         <CardTitle class="text-lg font-semibold text-gray-800 dark:text-gray-100 truncate" :title="process.title">
-                            {{ process.title }}
+                            {{ process.title || 'Caso sem Título' }}
                         </CardTitle>
-                        <CardDescription class="text-xs text-gray-600 dark:text-gray-400">
-                            {{ process.workflow_label || process.workflow }} - Estágio: {{ process.stage_label || process.stage || 'N/A' }}
+                        <CardDescription class="text-xs text-gray-600 dark:text-gray-400 flex items-center flex-wrap">
+                            <span>{{ process.workflow_label || process.workflow }} - Estágio:</span>
+                            <DropdownMenu v-if="props.availableStages && props.availableStages.length > 0">
+                                <DropdownMenuTrigger as-child>
+                                    <Button variant="link" class="p-0 h-auto ml-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="stageUpdateForm.processing">
+                                        {{ process.stage_label || process.stage || 'N/A' }}
+                                        <ChevronDownIcon class="h-3 w-3 ml-0.5 opacity-70" v-if="!stageUpdateForm.processing" />
+                                        <svg v-else class="animate-spin ml-1 h-3 w-3 text-indigo-600 dark:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                    <DropdownMenuLabel>Mudar Estágio</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuRadioGroup v-model="stageUpdateForm.stage" @update:modelValue="updateStage">
+                                        <DropdownMenuRadioItem
+                                            v-for="stageOption in props.availableStages"
+                                            :key="stageOption.key"
+                                            :value="stageOption.key"
+                                            class="text-xs"
+                                            :disabled="stageUpdateForm.processing || stageUpdateForm.stage === stageOption.key"
+                                        >
+                                            {{ stageOption.label }}
+                                        </DropdownMenuRadioItem>
+                                    </DropdownMenuRadioGroup>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            <span v-else class="ml-1">{{ process.stage_label || process.stage || 'N/A' }}</span>
                         </CardDescription>
+                        <div v-if="stageUpdateForm.errors.stage" class="text-xs text-red-500 mt-1">
+                            {{ stageUpdateForm.errors.stage }}
+                        </div>
                         
                         <Separator class="my-3" />
 
@@ -237,9 +335,9 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                 <UserCircle2 class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Responsável:</span> {{ process.responsible.name || 'N/A' }}
                             </div>
-                             <div v-if="process.status" class="flex items-center">
+                             <div v-if="process.status_label || process.status" class="flex items-center">
                                 <CheckCircle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                <span class="font-medium mr-1">Status:</span> {{ process.status }}
+                                <span class="font-medium mr-1">Status:</span> {{ process.status_label || process.status || 'N/A' }}
                             </div>
                             <div class="flex items-center">
                                 <AlertTriangle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
@@ -291,14 +389,23 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                 <Button type="submit" size="sm" :disabled="annotationForm.processing">Salvar</Button>
                             </div>
                         </form>
-
+                        
                         <div v-if="process.annotations && process.annotations.length > 0" class="space-y-3 max-h-96 overflow-y-auto pr-1">
                             <div v-for="annotation in process.annotations.slice().reverse()" :key="annotation.id" class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-xs relative group">
                                 <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ annotation.content }}</p>
                                 <p class="text-gray-500 dark:text-gray-400 mt-1 text-right">
                                     {{ annotation.user_name || annotation.user?.name || 'Sistema' }} - {{ formatDate(annotation.created_at, true) }}
                                 </p>
-                                </div>
+                                 <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    class="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    @click="openDeleteProcessAnnotationDialog(annotation)"
+                                    title="Excluir anotação"
+                                >
+                                    <Trash2 class="h-3 w-3 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-500" />
+                                </Button>
+                            </div>
                         </div>
                         <p v-else-if="!showNewAnnotationForm" class="text-gray-500 dark:text-gray-400 text-center py-4">Nenhuma anotação encontrada.</p>
                     </CardContent>
@@ -322,12 +429,12 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                         </button>
                     </nav>
                 </div>
-
+                
                 <div class="flex-grow overflow-y-auto p-1 pr-2 no-scrollbar">
                     <div v-if="activeMainTab === 'tasks'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Lista de Tarefas</h3>
-                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa')">
+                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa para processo ID:', process.id)">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Nova Tarefa
                             </Button>
                         </div>
@@ -357,7 +464,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
                          <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
-                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo')">
+                             <Button variant="outline" size="sm" @click="console.log('Abrir modal upload documento para processo ID:', process.id)">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
                             </Button>
                         </div>
@@ -380,7 +487,7 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                                                 <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
                                             </Button>
                                         </a>
-                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id)" title="Excluir documento">
+                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="console.log('Abrir modal deletar documento ' + doc.id + ' para processo ID: ' + process.id)" title="Excluir documento">
                                             <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
                                         </Button>
                                     </div>
@@ -423,6 +530,34 @@ const historyEntries = ref<ProcessHistoryEntry[]>(props.process.history_entries 
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
                         {{ processDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showDeleteProcessAnnotationDialog" @update:open="showDeleteProcessAnnotationDialog = $event">
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Confirmar Exclusão de Anotação</DialogTitle>
+                    <DialogDescription v-if="processAnnotationToDelete">
+                        Tem certeza de que deseja excluir esta anotação?
+                        <blockquote class="mt-2 p-2 border-l-4 border-gray-300 bg-gray-50 dark:bg-gray-700 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                            {{ processAnnotationToDelete.content.substring(0, 100) }}{{ processAnnotationToDelete.content.length > 100 ? '...' : '' }}
+                        </blockquote>
+                        Esta ação não poderá ser desfeita.
+                    </DialogDescription>
+                    <DialogDescription v-else>
+                        Tem certeza de que deseja excluir esta anotação? Esta ação não poderá ser desfeita.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+                    <Button variant="outline" type="button" @click="showDeleteProcessAnnotationDialog = false; processAnnotationToDelete = null;">Cancelar</Button>
+                    <Button variant="destructive" :disabled="processAnnotationDeleteForm.processing" @click="submitDeleteProcessAnnotation">
+                         <svg v-if="processAnnotationDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {{ processAnnotationDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
                     </Button>
                 </DialogFooter>
             </DialogContent>

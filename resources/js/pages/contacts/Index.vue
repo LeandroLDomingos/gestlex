@@ -153,29 +153,25 @@ const tableHeaders: { key: SortableColumnKey | string; label: string; sortable: 
                 <h1 class="text-2xl font-semibold text-gray-800 dark:text-gray-100">
                     Lista de Contatos
                 </h1>
-                <div class="relative w-full sm:w-auto">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg class="h-5 w-5 text-gray-400 dark:text-gray-500" xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd"
-                                d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-                                clip-rule="evenodd" />
-                        </svg>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <div class="relative flex-grow sm:flex-grow-0">
+                        <Search
+                            class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
+                        <Input type="text" v-model="searchTerm" placeholder="Buscar contatos..."
+                            class="block w-full sm:w-64 pl-10 pr-3 py-2 h-10" />
                     </div>
-                    <Input type="text" v-model="searchTerm" placeholder="Buscar contatos..."
-                        class="block w-full sm:w-64 pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 sm:text-sm" />
+                    <Link :href="route('contacts.create')">
+                    <Button variant="default" size="default">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="1.2em" height="1.2em" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" class="mr-2 h-4 w-4">
+                            <path d="M5 12h14" />
+                            <path d="M12 5v14" />
+                        </svg>
+                        Criar Contato
+                    </Button>
+                    </Link>
                 </div>
-                <Link :href="route('contacts.create')">
-                <Button variant="default" size="default">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        class="mr-2 h-4 w-4">
-                        <path d="M5 12h14" />
-                        <path d="M12 5v14" />
-                    </svg>
-                    Criar Contato
-                </Button>
-                </Link>
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">

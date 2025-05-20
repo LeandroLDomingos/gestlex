@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Process;
 use App\Models\User;
 use App\Models\Contact;
-// Removido: use App\Models\Workflow; // Não estamos usando um modelo Workflow separado
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -13,19 +12,48 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Validation\Rule;
+use Illuminate\Database\Eloquent\Builder;
+use Carbon\Carbon;
 
 class ProcessController extends Controller
 {
+    protected function applySearchFilters(Builder $query, ?string $searchTerm): Builder
+    {
+        return $query->when($searchTerm, function ($query, $searchTerm) {
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('title', 'LIKE', "%{$searchTerm}%")
+                    ->orWhere('origin', 'LIKE', "%{$searchTerm}%")
+                    ->orWhere('description', 'LIKE', "%{$searchTerm}%")
+                    ->orWhere('workflow', 'LIKE', "%{$searchTerm}%")
+                    ->orWhereHas('responsible', function ($userQuery) use ($searchTerm) {
+                        $userQuery->where('name', 'LIKE', "%{$searchTerm}%");
+                    })
+                    ->orWhereHas('contact', function ($contactQuery) use ($searchTerm) {
+                        $contactQuery->where('name', 'LIKE', "%{$searchTerm}%")
+                            ->orWhere('business_name', 'LIKE', "%{$searchTerm}%");
+                    });
+                if (is_numeric($searchTerm)) {
+                    $q->orWhere('negotiated_value', '=', $searchTerm);
+                }
+            });
+        });
+    }
+
     public function index(Request $request): Response
     {
         $sortBy = $request->input('sort_by', 'created_at');
         $sortDirection = $request->input('sort_direction', 'desc');
         $search = $request->input('search', '');
         $workflowFilter = $request->input('workflow');
-        $stageFilter = $request->input('stage'); // Assumindo que stage é o ID/key do estágio
+        $stageFilter = $request->input('stage');
+        $responsibleFilter = $request->input('responsible_id');
+        $priorityFilter = $request->input('priority');
+        $statusFilter = $request->input('status');
+        $dateFromFilter = $request->input('date_from');
+        $dateToFilter = $request->input('date_to');
 
         $directSortableColumns = ['title', 'origin', 'negotiated_value', 'workflow', 'stage', 'priority', 'status', 'due_date', 'created_at', 'updated_at'];
-        $relationSortableColumns = ['contact.name', 'responsible.name']; // Corrigido para responsible_id -> users.name
+        $relationSortableColumns = ['contact.name', 'responsible.name'];
         $allowedSortColumns = array_merge($directSortableColumns, $relationSortableColumns);
 
         if (!in_array($sortBy, $allowedSortColumns)) {
@@ -39,30 +67,25 @@ class ProcessController extends Controller
             ->with([
                 'responsible:id,name',
                 'contact:id,name,business_name,type',
-            ])
-            ->when($search, function ($query, $searchTerm) {
-                $query->where(function ($q) use ($searchTerm) {
-                    $q->where('title', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('origin', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('description', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('workflow', 'LIKE', "%{$searchTerm}%")
-                        ->orWhereHas('responsible', function ($userQuery) use ($searchTerm) {
-                            $userQuery->where('name', 'LIKE', "%{$searchTerm}%");
-                        })
-                        ->orWhereHas('contact', function ($contactQuery) use ($searchTerm) {
-                            $contactQuery->where('name', 'LIKE', "%{$searchTerm}%")
-                                ->orWhere('business_name', 'LIKE', "%{$searchTerm}%");
-                        });
-                    if (is_numeric($searchTerm)) {
-                        $q->orWhere('negotiated_value', '=', $searchTerm);
-                    }
-                });
+            ]);
+
+        $processesQuery = $this->applySearchFilters($processesQuery, $search);
+
+        $processesQuery
+            ->when($workflowFilter, fn(Builder $query, $val) => $query->where('workflow', $val))
+            ->when($stageFilter && $workflowFilter, fn(Builder $query, $val) => $query->where('stage', $stageFilter))
+            ->when($responsibleFilter, fn(Builder $query, $val) => $query->where('responsible_id', $val))
+            ->when($priorityFilter, fn(Builder $query, $val) => $query->where('priority', $val))
+            ->when($statusFilter, fn(Builder $query, $val) => $query->where('status', $val))
+            ->when($dateFromFilter, function (Builder $query, $dateFrom) {
+                try {
+                    return $query->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay());
+                } catch (\Exception $e) { return $query; }
             })
-            ->when($workflowFilter, function ($query, $workflowKey) {
-                return $query->where('workflow', $workflowKey);
-            })
-            ->when($stageFilter && $workflowFilter, function ($query, $stageKey) { // stageFilter é a key do estágio
-                return $query->where('stage', $stageKey);
+            ->when($dateToFilter, function (Builder $query, $dateTo) {
+                try {
+                    return $query->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay());
+                } catch (\Exception $e) { return $query; }
             });
 
         if (in_array($sortBy, ['title', 'origin', 'workflow'])) {
@@ -71,8 +94,8 @@ class ProcessController extends Controller
             $processesQuery->leftJoin('contacts', 'processes.contact_id', '=', 'contacts.id')
                            ->orderBy('contacts.name', $sortDirection)
                            ->select('processes.*');
-        } elseif ($sortBy === 'responsible.name') { // Corrigido para responsible.name
-            $processesQuery->leftJoin('users', 'processes.responsible_id', '=', 'users.id') // Assumindo que a FK é responsible_id
+        } elseif ($sortBy === 'responsible.name') {
+            $processesQuery->leftJoin('users', 'processes.responsible_id', '=', 'users.id')
                            ->orderBy('users.name', $sortDirection)
                            ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
@@ -81,25 +104,68 @@ class ProcessController extends Controller
 
         $processes = $processesQuery->paginate(15)->withQueryString();
 
-        // Preparar dados de workflows e estágios para os filtros do frontend
-        $availableWorkflowsForFilter = collect(Process::WORKFLOWS)->map(function ($label, $key) {
-            return ['key' => $key, 'label' => $label];
+        $workflowsData = collect(Process::WORKFLOWS)->map(function ($label, $key) use ($search, $responsibleFilter, $priorityFilter, $statusFilter, $dateFromFilter, $dateToFilter) {
+            $countQuery = Process::query()->where('workflow', $key);
+            $countQuery = $this->applySearchFilters($countQuery, $search);
+            $countQuery
+                ->when($responsibleFilter, fn($q, $val) => $q->where('responsible_id', $val))
+                ->when($priorityFilter, fn($q, $val) => $q->where('priority', $val))
+                ->when($statusFilter, fn($q, $val) => $q->where('status', $val))
+                ->when($dateFromFilter, function (Builder $q, $dateFrom) {
+                    try { return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $q; }
+                })
+                ->when($dateToFilter, function (Builder $q, $dateTo) {
+                    try { return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $q; }
+                });
+
+            return [
+                'key' => $key,
+                'label' => $label,
+                'count' => $countQuery->count(),
+                'stages' => collect(Process::getStagesForWorkflow($key))
+                                ->map(fn($stageLabel, $stageKey) => ['key' => (int)$stageKey, 'label' => $stageLabel]) // Garante key como int
+                                ->values()->all(),
+            ];
         })->values()->all();
 
-        $allStagesForFilter = [];
+        $allProcessesCountQuery = Process::query();
+        $allProcessesCountQuery = $this->applySearchFilters($allProcessesCountQuery, $search);
+        $allProcessesCountQuery
+            ->when($responsibleFilter, fn($q, $val) => $q->where('responsible_id', $val))
+            ->when($priorityFilter, fn($q, $val) => $q->where('priority', $val))
+            ->when($statusFilter, fn($q, $val) => $q->where('status', $val))
+            ->when($dateFromFilter, function (Builder $q, $dateFrom) {
+                try { return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $q; }
+            })
+            ->when($dateToFilter, function (Builder $q, $dateTo) {
+                try { return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $q; }
+            });
+        $allProcessesCount = $allProcessesCountQuery->count();
+
+        $currentWorkflowStages = [];
         if ($workflowFilter && array_key_exists($workflowFilter, Process::WORKFLOWS)) {
-            $allStagesForFilter = collect(Process::getStagesForWorkflow($workflowFilter))
-                ->map(function ($label, $key) {
-                    return ['key' => $key, 'label' => $label];
-                })->values()->all();
+            $currentWorkflowStages = collect(Process::getStagesForWorkflow($workflowFilter))
+                ->map(fn($label, $key) => ['key' => (int)$key, 'label' => $label])->values()->all();
         }
 
+        $usersForFilter = User::orderBy('name')->get(['id', 'name']);
+        $statusesForFilter = defined('App\Models\Process::STATUSES') ?
+            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+
+        $prioritiesForFilter = defined('App\Models\Process::PRIORITIES') ?
+            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            [['key' => 'low', 'label' => 'Baixa'], ['key' => 'medium', 'label' => 'Média'], ['key' => 'high', 'label' => 'Alta']];
 
         return Inertia::render('processes/Index', [
             'processes' => $processes,
-            'filters' => $request->only(['search', 'workflow', 'stage', 'sort_by', 'sort_direction']),
-            'availableWorkflows' => $availableWorkflowsForFilter,
-            'currentWorkflowStages' => $allStagesForFilter, // Estágios do workflow atualmente filtrado
+            'filters' => $request->only(['search', 'workflow', 'stage', 'responsible_id', 'priority', 'status', 'date_from', 'date_to', 'sort_by', 'sort_direction']),
+            'workflows' => $workflowsData,
+            'currentWorkflowStages' => $currentWorkflowStages,
+            'allProcessesCount' => $allProcessesCount,
+            'usersForFilter' => $usersForFilter,
+            'statusesForFilter' => $statusesForFilter,
+            'prioritiesForFilter' => $prioritiesForFilter,
         ]);
     }
 
@@ -114,7 +180,6 @@ class ProcessController extends Controller
         $users = User::orderBy('name')->get(['id', 'name']);
         $contacts = Contact::orderBy('name')->get(['id', 'name', 'business_name', 'type']);
 
-        // Preparar dados de workflows e estágios para o formulário de criação
         $availableWorkflows = collect(Process::WORKFLOWS)->map(function ($label, $key) {
             return ['key' => $key, 'label' => $label];
         })->values()->all();
@@ -123,17 +188,27 @@ class ProcessController extends Controller
         foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
             $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
                 ->map(function ($label, $key) {
-                    return ['key' => (int)$key, 'label' => $label]; // Garante que a chave do estágio seja integer
+                    return ['key' => (int)$key, 'label' => $label];
                 })->values()->all();
         }
+        
+        $statusesForForm = defined('App\Models\Process::STATUSES') ?
+            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+
+        $prioritiesForForm = defined('App\Models\Process::PRIORITIES') ?
+            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            [['key' => 'low', 'label' => 'Baixa'], ['key' => 'medium', 'label' => 'Média'], ['key' => 'high', 'label' => 'Alta']];
 
         return Inertia::render('processes/Create', [
             'contact_id' => $contact ? $contact->id : null,
             'contact_name' => $contact ? ($contact->name ?: $contact->business_name) : null,
             'users' => $users,
             'contactsList' => $contacts,
-            'availableWorkflows' => $availableWorkflows, // Passa os workflows formatados
-            'allStages' => $allStages, // Passa todos os estágios agrupados por workflow
+            'availableWorkflows' => $availableWorkflows,
+            'allStages' => $allStages,
+            'statusesForForm' => $statusesForForm,
+            'prioritiesForForm' => $prioritiesForForm,
         ]);
     }
 
@@ -143,28 +218,31 @@ class ProcessController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string|max:5000',
             'contact_id' => 'required|exists:contacts,id',
-            'responsible_id' => 'nullable|exists:users,id', // Corrigido para responsible_id
+            'responsible_id' => 'nullable|exists:users,id',
             'workflow' => ['required', 'string', Rule::in(array_keys(Process::WORKFLOWS))],
-            'stage' => ['required', 'integer'], // Valida que 'stage' é um inteiro
+            'stage' => ['required', 'integer'],
             'due_date' => 'nullable|date_format:Y-m-d',
             'priority' => 'required|in:low,medium,high',
             'origin' => 'nullable|string|max:100',
             'negotiated_value' => 'nullable|numeric|min:0',
+            'status' => 'nullable|string|max:50',
         ]);
 
-        // Validação adicional para garantir que o estágio pertença ao workflow selecionado
         $stagesForSelectedWorkflow = Process::getStagesForWorkflow($validatedData['workflow']);
         if (!array_key_exists($validatedData['stage'], $stagesForSelectedWorkflow)) {
             return back()->withErrors(['stage' => 'O estágio selecionado não é válido para o workflow escolhido.'])->withInput();
         }
         
-        // Adicionar status padrão se não for enviado ou se depender do estágio/workflow
-        // $validatedData['status'] = $validatedData['status'] ?? 'Aberto';
-
+        $validatedData['status'] = $validatedData['status'] ?? Process::STATUS_OPEN; // Usando constante para status padrão
 
         DB::beginTransaction();
         try {
             $process = Process::create($validatedData);
+            // Anotação automática de criação
+            $process->annotations()->create([
+                'content' => 'Caso criado.',
+                'user_id' => auth()->id(),
+            ]);
             DB::commit();
             return Redirect::route('processes.show', $process->id)
                            ->with('success', 'Caso criado com sucesso!');
@@ -193,28 +271,32 @@ class ProcessController extends Controller
                 $query->with('uploader:id,name')->orderBy('created_at', 'desc');
             },
         ]);
+        // Garante que os acessores sejam carregados
+        $process->append(['workflow_label', 'stage_label', 'priority_label', 'status_label']);
 
-        // Os acessores getWorkflowLabelAttribute e getStageLabelAttribute no modelo Process
-        // já devem adicionar 'workflow_label' e 'stage_label' à serialização do modelo.
-        // Se não estiverem aparecendo, certifique-se que estão no array $appends do modelo Process.
+        // Estágios disponíveis para o workflow atual deste processo
+        $availableStages = [];
+        if ($process->workflow) {
+            $availableStages = collect(Process::getStagesForWorkflow($process->workflow))
+                ->map(fn($label, $key) => ['key' => (int)$key, 'label' => $label])
+                ->values()->all();
+        }
 
         return Inertia::render('processes/Show', [
             'process' => $process,
-            'users' => User::orderBy('name')->get(['id', 'name']),
+            'users' => User::orderBy('name')->get(['id', 'name']), // Para dropdowns na página (ex: mudar responsável)
+            'availableStages' => $availableStages, // Passa os estágios para o dropdown de mudança de estágio
         ]);
     }
 
     public function edit(Process $process): Response
     {
         $process->load(['contact:id,name,business_name,type', 'responsible:id,name']);
-
         $users = User::orderBy('name')->get(['id', 'name']);
         $contacts = Contact::orderBy('name')->get(['id', 'name', 'business_name', 'type']);
-
         $availableWorkflows = collect(Process::WORKFLOWS)->map(function ($label, $key) {
             return ['key' => $key, 'label' => $label];
         })->values()->all();
-
         $allStages = [];
         foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
             $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
@@ -223,12 +305,22 @@ class ProcessController extends Controller
                 })->values()->all();
         }
 
+        $statusesForForm = defined('App\Models\Process::STATUSES') ?
+            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+
+        $prioritiesForForm = defined('App\Models\Process::PRIORITIES') ?
+            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            [['key' => 'low', 'label' => 'Baixa'], ['key' => 'medium', 'label' => 'Média'], ['key' => 'high', 'label' => 'Alta']];
+
         return Inertia::render('processes/Edit', [
             'process' => $process,
             'users' => $users,
             'contactsList' => $contacts,
             'availableWorkflows' => $availableWorkflows,
             'allStages' => $allStages,
+            'statusesForForm' => $statusesForForm,
+            'prioritiesForForm' => $prioritiesForForm,
         ]);
     }
 
@@ -238,7 +330,7 @@ class ProcessController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string|max:5000',
             'contact_id' => 'required|exists:contacts,id',
-            'responsible_id' => 'nullable|exists:users,id', // Corrigido para responsible_id
+            'responsible_id' => 'nullable|exists:users,id',
             'workflow' => ['required', 'string', Rule::in(array_keys(Process::WORKFLOWS))],
             'stage' => ['required', 'integer'],
             'due_date' => 'nullable|date_format:Y-m-d',
@@ -255,7 +347,19 @@ class ProcessController extends Controller
 
         DB::beginTransaction();
         try {
+            $oldStageLabel = $process->stage_label; // Pega o label do estágio antigo
+            
             $process->update($validatedData);
+            
+            // Se o estágio mudou, adiciona uma anotação
+            if ($process->wasChanged('stage')) {
+                 $newStageLabel = $process->fresh()->stage_label; // Pega o label do novo estágio
+                 $process->annotations()->create([
+                    'content' => "Estágio alterado de \"{$oldStageLabel}\" para \"{$newStageLabel}\".",
+                    'user_id' => auth()->id(),
+                ]);
+            }
+
             DB::commit();
             return Redirect::route('processes.show', $process->id)
                            ->with('success', 'Caso atualizado com sucesso!');
@@ -269,15 +373,67 @@ class ProcessController extends Controller
         }
     }
 
+    /**
+     * Atualiza apenas o estágio de um processo.
+     */
+    public function updateStage(Request $request, Process $process)
+    {
+        $validated = $request->validate([
+            'stage' => ['required', 'integer', function ($attribute, $value, $fail) use ($process) {
+                $stagesForWorkflow = Process::getStagesForWorkflow($process->workflow);
+                if (!array_key_exists($value, $stagesForWorkflow)) {
+                    $fail("O estágio selecionado não é válido para o workflow '{$process->workflow_label}'.");
+                }
+            }],
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $oldStageLabel = $process->stage_label; // Pega o label do estágio antigo ANTES de atualizar
+
+            $process->stage = $validated['stage'];
+            // Opcional: Atualizar o campo 'status' com base no novo estágio, se houver essa lógica.
+            // Exemplo: $process->status = $this->determineStatusFromStage($process->workflow, $validated['stage']);
+            $process->save();
+
+            $newStageLabel = $process->fresh()->stage_label; // Pega o label do novo estágio DEPOIS de atualizar e salvar
+
+            // Adicionar uma anotação automática sobre a mudança de estágio
+            $process->annotations()->create([
+                'content' => "Estágio alterado de \"{$oldStageLabel}\" para \"{$newStageLabel}\".",
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+
+            // Retorna para a página de visualização do processo com mensagem de sucesso
+            return Redirect::route('processes.show', $process->id)
+                           ->with('success', 'Estágio do caso atualizado com sucesso!');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            return back()->withErrors($e->errors())->withInput(); // Retorna erros de validação
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao atualizar estágio do processo {$process->id}: " . $e->getMessage());
+            return Redirect::back()->with('error', 'Ocorreu um erro ao atualizar o estágio.');
+        }
+    }
+
+
     public function destroy(Process $process)
     {
         DB::beginTransaction();
         try {
             $processTitle = $process->title;
             // Adicionar lógica para deletar/desassociar itens relacionados se necessário
-            // $process->annotations()->delete();
-            // $process->tasks()->delete();
-            // $process->documents()->each(function($doc){ /* delete file and record */ });
+            $process->annotations()->delete();
+            $process->tasks()->delete();
+            $process->documents()->each(function($doc){
+                if ($doc->path && Storage::disk('public')->exists($doc->path)) {
+                    Storage::disk('public')->delete($doc->path);
+                }
+                $doc->delete();
+            });
             $process->delete();
             DB::commit();
             return Redirect::route('processes.index')
