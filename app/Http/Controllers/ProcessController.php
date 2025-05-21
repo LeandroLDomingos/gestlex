@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Process;
 use App\Models\ProcessDocument;
+use App\Models\Task;
 use App\Models\User;
 use App\Models\Contact;
 use App\Models\ProcessAnnotation;
@@ -94,22 +95,30 @@ class ProcessController extends Controller
             ->when($priorityFilter, fn(Builder $query, $val) => $query->where('priority', $val))
             ->when($statusFilter, fn(Builder $query, $val) => $query->where('status', $val))
             ->when($dateFromFilter, function (Builder $query, $dateFrom) {
-                try { return $query->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $query; }
+                try {
+                    return $query->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay());
+                } catch (\Exception $e) {
+                    return $query;
+                }
             })
             ->when($dateToFilter, function (Builder $query, $dateTo) {
-                try { return $query->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $query; }
+                try {
+                    return $query->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay());
+                } catch (\Exception $e) {
+                    return $query;
+                }
             });
 
         if (in_array($sortBy, ['title', 'origin', 'workflow'])) {
             $processesQuery->orderByRaw("LOWER({$sortBy}) {$sortDirection}");
         } elseif ($sortBy === 'contact.name') {
             $processesQuery->leftJoin('contacts', 'processes.contact_id', '=', 'contacts.id')
-                           ->orderBy('contacts.name', $sortDirection)
-                           ->select('processes.*');
+                ->orderBy('contacts.name', $sortDirection)
+                ->select('processes.*');
         } elseif ($sortBy === 'responsible.name') {
             $processesQuery->leftJoin('users', 'processes.responsible_id', '=', 'users.id')
-                           ->orderBy('users.name', $sortDirection)
-                           ->select('processes.*');
+                ->orderBy('users.name', $sortDirection)
+                ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
             $processesQuery->orderBy($sortBy, $sortDirection);
         }
@@ -125,10 +134,18 @@ class ProcessController extends Controller
                 ->when($priorityFilter, fn($q, $val) => $q->where('priority', $val))
                 ->when($statusFilter, fn($q, $val) => $q->where('status', $val))
                 ->when($dateFromFilter, function (Builder $q, $dateFrom) {
-                    try { return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $q; }
+                    try {
+                        return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay());
+                    } catch (\Exception $e) {
+                        return $q;
+                    }
                 })
                 ->when($dateToFilter, function (Builder $q, $dateTo) {
-                    try { return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $q; }
+                    try {
+                        return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay());
+                    } catch (\Exception $e) {
+                        return $q;
+                    }
                 });
             return $query;
         };
@@ -140,24 +157,24 @@ class ProcessController extends Controller
                 'label' => $label,
                 'count' => $countQueryForWorkflow->count(),
                 'stages' => collect(Process::getStagesForWorkflow($key))
-                                ->map(fn($stageLabel, $stageKey) => ['key' => (int)$stageKey, 'label' => $stageLabel])
-                                ->values()->all(),
+                    ->map(fn($stageLabel, $stageKey) => ['key' => (int) $stageKey, 'label' => $stageLabel])
+                    ->values()->all(),
             ];
         })->values()->all();
-        
+
         $allProcessesCount = (clone $baseCountQueryForSidebar())->whereNull('archived_at')->count();
         $archivedProcessesCount = (clone $baseCountQueryForSidebar())->whereNotNull('archived_at')->count();
 
         $currentWorkflowStages = [];
         if ($workflowFilter && array_key_exists($workflowFilter, Process::WORKFLOWS)) {
             $currentWorkflowStages = collect(Process::getStagesForWorkflow($workflowFilter))
-                ->map(fn($label, $key) => ['key' => (int)$key, 'label' => $label])->values()->all();
+                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])->values()->all();
         }
 
         $usersForFilter = User::orderBy('name')->get(['id', 'name']);
         $statusesForFilter = defined('App\Models\Process::STATUSES') ?
             collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
 
         $prioritiesForFilter = defined('App\Models\Process::PRIORITIES') ?
             collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
@@ -194,12 +211,12 @@ class ProcessController extends Controller
         $allStages = [];
         foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
             $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
-                ->map(fn($label, $key) => ['key' => (int)$key, 'label' => $label])->values()->all();
+                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])->values()->all();
         }
-        
+
         $availableStatuses = defined('App\Models\Process::STATUSES') ?
             collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
 
         $availablePriorities = defined('App\Models\Process::PRIORITIES') ?
             collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
@@ -240,7 +257,7 @@ class ProcessController extends Controller
         if (!array_key_exists($validatedData['stage'], $stagesForSelectedWorkflow)) {
             return back()->withErrors(['stage' => 'O estágio selecionado não é válido para o workflow escolhido.'])->withInput();
         }
-        
+
         $validatedData['status'] = $validatedData['status'] ?? Process::STATUS_OPEN;
 
         DB::beginTransaction();
@@ -253,7 +270,7 @@ class ProcessController extends Controller
             ]);
             DB::commit();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Caso criado com sucesso!');
+                ->with('success', 'Caso criado com sucesso!');
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
             return back()->withErrors($e->errors())->withInput();
@@ -290,7 +307,7 @@ class ProcessController extends Controller
         $availableStages = [];
         if ($process->workflow) {
             $availableStages = collect(Process::getStagesForWorkflow($process->workflow))
-                ->map(fn($label, $key) => ['key' => (int)$key, 'label' => $label])
+                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])
                 ->values()->all();
         }
 
@@ -300,7 +317,7 @@ class ProcessController extends Controller
 
         $availableStatuses = defined('App\Models\Process::STATUSES') ?
             collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
 
         return Inertia::render('processes/Show', [
             'process' => $process,
@@ -326,13 +343,13 @@ class ProcessController extends Controller
         foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
             $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
                 ->map(function ($label, $key) {
-                    return ['key' => (int)$key, 'label' => $label];
+                    return ['key' => (int) $key, 'label' => $label];
                 })->values()->all();
         }
 
         $statusesForForm = defined('App\Models\Process::STATUSES') ?
             collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string)$s)])->all();
+            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
 
         $prioritiesForForm = defined('App\Models\Process::PRIORITIES') ?
             collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
@@ -381,21 +398,21 @@ class ProcessController extends Controller
                 'status_label' => $process->status_label,
                 // Adicionar outros campos que você quer logar se mudarem
             ];
-            
+
             $process->update($validatedData);
-            $process->refresh(); 
+            $process->refresh();
 
             $historyDescription = "Caso atualizado por " . auth()->user()->name . ".";
             $specificChanges = [];
 
             if ($process->wasChanged('stage')) {
-                 $specificChanges[] = "Estágio alterado de \"{$oldData['stage_label']}\" para \"{$process->stage_label}\".";
+                $specificChanges[] = "Estágio alterado de \"{$oldData['stage_label']}\" para \"{$process->stage_label}\".";
             }
             if ($process->wasChanged('priority')) {
-                 $specificChanges[] = "Prioridade alterada de \"{$oldData['priority_label']}\" para \"{$process->priority_label}\".";
+                $specificChanges[] = "Prioridade alterada de \"{$oldData['priority_label']}\" para \"{$process->priority_label}\".";
             }
             if ($process->wasChanged('status')) {
-                 $specificChanges[] = "Status alterado de \"{$oldData['status_label']}\" para \"{$process->status_label}\".";
+                $specificChanges[] = "Status alterado de \"{$oldData['status_label']}\" para \"{$process->status_label}\".";
             }
             // Adicionar logs para outros campos importantes se desejar
             // Ex: if ($process->wasChanged('title')) { $specificChanges[] = "Título alterado para \"{$process->title}\"."; }
@@ -403,9 +420,9 @@ class ProcessController extends Controller
             if (!empty($specificChanges)) {
                 $historyDescription .= "\nDetalhes:\n- " . implode("\n- ", $specificChanges);
             }
-            
+
             if ($process->wasChanged()) {
-                 $process->historyEntries()->create([
+                $process->historyEntries()->create([
                     'action' => 'Caso Editado',
                     'description' => $historyDescription,
                     'user_id' => auth()->id(),
@@ -414,7 +431,7 @@ class ProcessController extends Controller
 
             DB::commit();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Caso atualizado com sucesso!');
+                ->with('success', 'Caso atualizado com sucesso!');
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
             return back()->withErrors($e->errors())->withInput();
@@ -431,12 +448,16 @@ class ProcessController extends Controller
     public function updateStage(Request $request, Process $process)
     {
         $validated = $request->validate([
-            'stage' => ['required', 'integer', function ($attribute, $value, $fail) use ($process) {
-                $stagesForWorkflow = Process::getStagesForWorkflow($process->workflow);
-                if (!array_key_exists($value, $stagesForWorkflow)) {
-                    $fail("O estágio selecionado não é válido para o workflow '{$process->workflow_label}'.");
+            'stage' => [
+                'required',
+                'integer',
+                function ($attribute, $value, $fail) use ($process) {
+                    $stagesForWorkflow = Process::getStagesForWorkflow($process->workflow);
+                    if (!array_key_exists($value, $stagesForWorkflow)) {
+                        $fail("O estágio selecionado não é válido para o workflow '{$process->workflow_label}'.");
+                    }
                 }
-            }],
+            ],
         ]);
 
         DB::beginTransaction();
@@ -453,7 +474,7 @@ class ProcessController extends Controller
             ]);
             DB::commit();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Estágio do caso atualizado com sucesso!');
+                ->with('success', 'Estágio do caso atualizado com sucesso!');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao atualizar estágio do processo {$process->id}: " . $e->getMessage());
@@ -484,7 +505,7 @@ class ProcessController extends Controller
             ]);
             DB::commit();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Prioridade do caso atualizada com sucesso!');
+                ->with('success', 'Prioridade do caso atualizada com sucesso!');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao atualizar prioridade do processo {$process->id}: " . $e->getMessage());
@@ -515,7 +536,7 @@ class ProcessController extends Controller
             ]);
             DB::commit();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Status do caso atualizado com sucesso!');
+                ->with('success', 'Status do caso atualizado com sucesso!');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao atualizar status do processo {$process->id}: " . $e->getMessage());
@@ -534,7 +555,7 @@ class ProcessController extends Controller
             $process->annotations()->delete();
             $process->historyEntries()->delete();
             $process->tasks()->delete();
-            $process->documents()->each(function($doc){
+            $process->documents()->each(function ($doc) {
                 if ($doc->path && Storage::disk('public')->exists($doc->path)) {
                     Storage::disk('public')->delete($doc->path);
                 }
@@ -543,12 +564,12 @@ class ProcessController extends Controller
             $process->delete(); // Se estiver usando SoftDeletes, isso marcará como deletado
             DB::commit();
             return Redirect::route('processes.index')
-                           ->with('success', "Caso '{$processTitle}' excluído com sucesso.");
+                ->with('success', "Caso '{$processTitle}' excluído com sucesso.");
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao excluir caso/processo {$process->id}: " . $e->getMessage());
             return Redirect::route('processes.index')
-                           ->with('error', 'Ocorreu um erro ao excluir o caso.');
+                ->with('error', 'Ocorreu um erro ao excluir o caso.');
         }
     }
 
@@ -654,7 +675,7 @@ class ProcessController extends Controller
         try {
             $annotation->delete();
             return Redirect::route('processes.show', $process->id)
-                           ->with('success', 'Anotação excluída com sucesso!');
+                ->with('success', 'Anotação excluída com sucesso!');
         } catch (\Exception $e) {
             Log::error("Erro ao excluir anotação {$annotation->id} do processo {$process->id}: " . $e->getMessage());
             return Redirect::back()->with('error', 'Ocorreu um erro ao excluir a anotação.');
@@ -675,7 +696,8 @@ class ProcessController extends Controller
             $fileName = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs("process_documents/{$process->id}", $fileName, 'public');
 
-            if (!$path) throw new \Exception("Falha ao armazenar o arquivo.");
+            if (!$path)
+                throw new \Exception("Falha ao armazenar o arquivo.");
 
             $process->documents()->create([
                 'uploader_user_id' => auth()->id(),
@@ -685,7 +707,7 @@ class ProcessController extends Controller
                 'size' => $file->getSize(),
                 'description' => $data['description'],
             ]);
-            
+
             $process->historyEntries()->create([
                 'action' => 'Documento Adicionado',
                 'description' => "Documento \"{$file->getClientOriginalName()}\" foi adicionado ao caso.",
@@ -729,6 +751,132 @@ class ProcessController extends Controller
             DB::rollBack();
             Log::error("Erro ao excluir documento {$document->id} do processo {$process->id}: " . $e->getMessage());
             return back()->with('error', 'Falha ao excluir documento.');
+        }
+    }
+    /**
+     * Armazena uma nova tarefa para um processo.
+     */
+    public function storeProcessTask(Request $request, Process $process)
+    {
+        $validatedData = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string|max:5000',
+            'due_date' => 'nullable|date_format:Y-m-d',
+            'responsible_user_id' => 'nullable|exists:users,id',
+            'status' => ['nullable', 'string', Rule::in(array_keys(Task::STATUSES ?? ['Pendente', 'Em Andamento', 'Concluída', 'Cancelada']))], // Assumindo Task::STATUSES
+        ]);
+
+        if ($process->isArchived()) {
+            return back()->with('error', 'Não é possível adicionar tarefas a um caso arquivado.');
+        }
+
+        DB::beginTransaction();
+        try {
+            $taskData = $validatedData;
+            $taskData['status'] = $validatedData['status'] ?? 'Pendente';
+
+            $task = $process->tasks()->create($taskData);
+
+            $description = "Tarefa \"{$task->title}\" adicionada";
+            if ($task->responsibleUser) {
+                $description .= " e atribuída a {$task->responsibleUser->name}";
+            }
+            if ($task->due_date) {
+                $dueDate = $task->due_date instanceof Carbon ? $task->due_date : Carbon::parse($task->due_date);
+                $description .= " com vencimento em " . $dueDate->format('d/m/Y');
+            }
+            $description .= ".";
+
+            $process->historyEntries()->create([
+                'action' => 'Tarefa Adicionada',
+                'description' => $description,
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('processes.show', $process->id)->with('success', 'Tarefa adicionada com sucesso!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao adicionar tarefa ao processo {$process->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            return back()->with('error', 'Falha ao adicionar tarefa.');
+        }
+    }
+
+    /**
+     * Atualiza uma tarefa existente de um processo.
+     */
+    public function updateProcessTask(Request $request, Process $process, Task $task)
+    {
+        if ($task->process_id !== $process->id) {
+            return back()->with('error', 'Tarefa não pertence a este processo.');
+        }
+        if ($process->isArchived()) {
+            return back()->with('error', 'Não é possível modificar tarefas de um caso arquivado.');
+        }
+
+        $validatedData = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string|max:5000',
+            'due_date' => 'nullable|date_format:Y-m-d',
+            'responsible_user_id' => 'nullable|exists:users,id',
+            'status' => ['required', 'string', Rule::in(array_keys(Task::STATUSES ?? ['Pendente', 'Em Andamento', 'Concluída', 'Cancelada']))], // Assumindo Task::STATUSES
+        ]);
+        
+        $validatedData['completed_at'] = ($validatedData['status'] === 'Concluída' && !$task->completed_at) ? now() : $task->completed_at;
+        if ($validatedData['status'] !== 'Concluída') {
+            $validatedData['completed_at'] = null;
+        }
+
+
+        DB::beginTransaction();
+        try {
+            $task->update($validatedData);
+            $task->refresh();
+
+            $process->historyEntries()->create([
+                'action' => 'Tarefa Atualizada',
+                'description' => "Tarefa \"{$task->title}\" foi atualizada.",
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('processes.show', $process->id)->with('success', 'Tarefa atualizada com sucesso!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao atualizar tarefa {$task->id} do processo {$process->id}: " . $e->getMessage());
+            return back()->with('error', 'Falha ao atualizar tarefa.');
+        }
+    }
+
+    /**
+     * Remove uma tarefa específica de um processo.
+     */
+    public function destroyProcessTask(Request $request, Process $process, Task $task)
+    {
+        if ($task->process_id !== $process->id) {
+            return back()->with('error', 'Tarefa não pertence a este processo.');
+        }
+        if ($process->isArchived()) {
+            return back()->with('error', 'Não é possível excluir tarefas de um caso arquivado.');
+        }
+
+        DB::beginTransaction();
+        try {
+            $taskTitle = $task->title;
+            $task->delete();
+
+            $process->historyEntries()->create([
+                'action' => 'Tarefa Excluída',
+                'description' => "Tarefa \"{$taskTitle}\" foi excluída do caso.",
+                'user_id' => auth()->id(),
+            ]);
+
+            DB::commit();
+            return redirect()->route('processes.show', $process->id)->with('success', 'Tarefa excluída com sucesso!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao excluir tarefa {$task->id} do processo {$process->id}: " . $e->getMessage());
+            return back()->with('error', 'Falha ao excluir tarefa.');
         }
     }
 }

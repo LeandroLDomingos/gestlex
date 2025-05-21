@@ -7,8 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input'; // Para o formulário de upload
-import { Label } from '@/components/ui/label';   // Para o formulário de upload
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogClose,
@@ -29,15 +29,15 @@ import {
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3
 } from 'lucide-vue-next';
 
-// Importando os tipos. Certifique-se que o caminho está correto.
-import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem } from '@/types/process';
-// import InputError from '@/Components/InputError.vue'; // Descomente se você tiver e usar este componente
+import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
+// import InputError from '@/Components/InputError.vue';
 
 const RGlobal = (window as any).route;
 const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
@@ -71,10 +71,11 @@ interface StageOption {
 }
 
 const props = defineProps<{
-    process: Process & { archived_at?: string | null, documents?: ProcessDocument[], history_entries?: ProcessHistoryEntry[] };
+    process: Process & { archived_at?: string | null, documents?: ProcessDocument[], history_entries?: ProcessHistoryEntry[], tasks?: ProcessTask[] };
     availableStages?: StageOption[];
     availablePriorities?: SelectOption[];
     availableStatuses?: SelectOption[];
+    users?: UserReference[];
 }>();
 
 const activeMainTab = ref<'tasks' | 'documents' | 'history'>('tasks');
@@ -85,31 +86,39 @@ const showDeleteProcessAnnotationDialog = ref(false);
 const processAnnotationToDelete = ref<ProcessAnnotation | null>(null);
 const processAnnotationDeleteForm = useForm({});
 
-const stageUpdateForm = useForm({
-    stage: props.process.stage,
-});
-const statusUpdateForm = useForm({
-    status: props.process.status,
-});
-const priorityUpdateForm = useForm({
-    priority: props.process.priority,
-});
+const stageUpdateForm = useForm({ stage: props.process.stage });
+const statusUpdateForm = useForm({ status: props.process.status });
+const priorityUpdateForm = useForm({ priority: props.process.priority });
 const archiveForm = useForm({});
 
-// Para Documentos do Processo
 const showUploadProcessDocumentDialog = ref(false);
-const processDocumentForm = useForm<{
-    file: File | null;
-    description: string;
-}>({
-    file: null,
-    description: '',
-});
+const processDocumentForm = useForm<{ file: File | null; description: string; }>({ file: null, description: '' });
 const processDocumentFileInputRef = ref<HTMLInputElement | null>(null);
 const showDeleteProcessDocumentDialog = ref(false);
 const processDocumentToDelete = ref<ProcessDocument | null>(null);
 const processDocumentDeleteForm = useForm({});
 
+// Estado e Formulário para Tarefas
+const showTaskDialog = ref(false); // Usado para criar e editar
+const editingTask = ref<ProcessTask | null>(null);
+const taskForm = useForm({
+    id: null as (string | number | null), // Para saber se é edição
+    title: '',
+    description: '',
+    due_date: '',
+    responsible_user_id: null as (string | number | null),
+    status: 'Pendente',
+});
+const showDeleteTaskDialog = ref(false);
+const taskToDelete = ref<ProcessTask | null>(null);
+const taskDeleteForm = useForm({});
+
+const taskStatusOptions: SelectOption[] = [
+    { key: 'Pendente', label: 'Pendente' },
+    { key: 'Em Andamento', label: 'Em Andamento' },
+    { key: 'Concluída', label: 'Concluída' },
+    { key: 'Cancelada', label: 'Cancelada' },
+];
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Painel', href: routeHelper('dashboard') },
@@ -122,9 +131,7 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
     if (!dateString) return 'N/A';
     try {
         const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
-        const options: Intl.DateTimeFormatOptions = {
-            day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
-        };
+        const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' };
         if (includeTime) { options.hour = '2-digit'; options.minute = '2-digit'; }
         return date.toLocaleDateString('pt-BR', options);
     } catch (e) { console.error("Erro ao formatar data:", dateString, e); return dateString; }
@@ -152,11 +159,7 @@ const annotationForm = useForm({ content: '' });
 function submitAnnotation() {
     annotationForm.post(routeHelper('processes.annotations.store', props.process.id), {
         preserveScroll: true,
-        onSuccess: () => {
-            annotationForm.reset('content');
-            showNewAnnotationForm.value = false;
-            router.reload({ only: ['process'] });
-        },
+        onSuccess: () => { annotationForm.reset('content'); showNewAnnotationForm.value = false; router.reload({ only: ['process'] }); },
         onError: (errors) => console.error("Erro ao salvar anotação:", errors)
     });
 }
@@ -185,108 +188,121 @@ function openDeleteProcessAnnotationDialog(annotation: ProcessAnnotation) {
 }
 function submitDeleteProcessAnnotation() {
     if (!processAnnotationToDelete.value) return;
-    processAnnotationDeleteForm.delete(routeHelper('processes.annotations.destroy', {
-        process: props.process.id,
-        annotation: processAnnotationToDelete.value.id
-    }), {
+    processAnnotationDeleteForm.delete(routeHelper('processes.annotations.destroy', { process: props.process.id, annotation: processAnnotationToDelete.value.id }), {
         preserveScroll: true,
-        onSuccess: () => {
-            showDeleteProcessAnnotationDialog.value = false;
-            processAnnotationToDelete.value = null;
-            router.reload({ only: ['process'] });
-        },
+        onSuccess: () => { showDeleteProcessAnnotationDialog.value = false; processAnnotationToDelete.value = null; router.reload({ only: ['process'] }); },
         onError: (errors) => console.error('Erro ao excluir anotação do processo:', errors)
     });
 }
 
 function updateStage(newStageKey: number) {
-    // O v-model do DropdownMenuRadioGroup já atualiza stageUpdateForm.stage
     stageUpdateForm.patch(routeHelper('processes.updateStage', props.process.id), {
-        preserveScroll: true,
-        onSuccess: () => router.reload({ only: ['process'] }),
-        onError: (errors) => {
-            console.error('Erro ao atualizar estágio:', errors);
-            stageUpdateForm.stage = props.process.stage; // Reverte em caso de erro
-            alert(errors.stage || 'Ocorreu um erro ao tentar atualizar o estágio.');
-        }
+        preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => { console.error('Erro ao atualizar estágio:', errors); stageUpdateForm.stage = props.process.stage; alert(errors.stage || 'Erro ao atualizar estágio.'); }
     });
 }
-
 function updateProcessStatus(newStatusKey: string) {
-    // O v-model do DropdownMenuRadioGroup já atualiza statusUpdateForm.status
     statusUpdateForm.patch(routeHelper('processes.updateStatus', props.process.id), {
-        preserveScroll: true,
-        onSuccess: () => router.reload({ only: ['process'] }),
-        onError: (errors) => {
-            console.error('Erro ao atualizar status:', errors);
-            statusUpdateForm.status = props.process.status; // Reverte em caso de erro
-            alert(errors.status || 'Ocorreu um erro ao tentar atualizar o status.');
-        }
+        preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => { console.error('Erro ao atualizar status:', errors); statusUpdateForm.status = props.process.status; alert(errors.status || 'Erro ao atualizar status.'); }
     });
 }
-
 function updateProcessPriority(newPriorityKey: string) {
-    // O v-model do DropdownMenuRadioGroup já atualiza priorityUpdateForm.priority
     priorityUpdateForm.patch(routeHelper('processes.updatePriority', props.process.id), {
-        preserveScroll: true,
-        onSuccess: () => router.reload({ only: ['process'] }),
-        onError: (errors) => {
-            console.error('Erro ao atualizar prioridade:', errors);
-            priorityUpdateForm.priority = props.process.priority; // Reverte em caso de erro
-            alert(errors.priority || 'Ocorreu um erro ao tentar atualizar a prioridade.');
-        }
+        preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
+        onError: (errors) => { console.error('Erro ao atualizar prioridade:', errors); priorityUpdateForm.priority = props.process.priority; alert(errors.priority || 'Erro ao atualizar prioridade.'); }
     });
 }
 
-// Funções para Documentos do Processo
 function submitProcessDocument() {
-    if (!processDocumentForm.file) {
-        processDocumentForm.setError('file', 'Por favor, selecione um arquivo.');
-        return;
-    }
+    if (!processDocumentForm.file) { processDocumentForm.setError('file', 'Selecione um arquivo.'); return; }
     processDocumentForm.post(routeHelper('processes.documents.store', props.process.id), {
         preserveScroll: true,
-        onSuccess: () => {
-            processDocumentForm.reset();
-            if (processDocumentFileInputRef.value) {
-                processDocumentFileInputRef.value.value = '';
-            }
-            showUploadProcessDocumentDialog.value = false;
-            router.reload({ only: ['process'] });
-        },
-        onError: (errors) => {
-            console.error('Erro ao enviar documento do processo:', errors);
-        },
+        onSuccess: () => { processDocumentForm.reset(); if (processDocumentFileInputRef.value) processDocumentFileInputRef.value.value = ''; showUploadProcessDocumentDialog.value = false; router.reload({ only: ['process'] }); },
+        onError: (errors) => console.error('Erro ao enviar documento:', errors),
         forceFormData: true,
     });
 }
-
-function openDeleteProcessDocumentDialog(doc: ProcessDocument) {
-    processDocumentToDelete.value = doc;
-    showDeleteProcessDocumentDialog.value = true;
-}
-
+function openDeleteProcessDocumentDialog(doc: ProcessDocument) { processDocumentToDelete.value = doc; showDeleteProcessDocumentDialog.value = true; }
 function submitDeleteProcessDocument() {
     if (!processDocumentToDelete.value) return;
-    processDocumentDeleteForm.delete(routeHelper('processes.documents.destroy', {
-        process: props.process.id,
-        document: processDocumentToDelete.value.id
-    }), {
+    processDocumentDeleteForm.delete(routeHelper('processes.documents.destroy', { process: props.process.id, document: processDocumentToDelete.value.id }), {
         preserveScroll: true,
-        onSuccess: () => {
-            showDeleteProcessDocumentDialog.value = false;
-            processDocumentToDelete.value = null;
-            router.reload({ only: ['process'] });
-        },
-        onError: (errors) => {
-            console.error('Erro ao excluir documento do processo:', errors);
-        }
+        onSuccess: () => { showDeleteProcessDocumentDialog.value = false; processDocumentToDelete.value = null; router.reload({ only: ['process'] }); },
+        onError: (errors) => console.error('Erro ao excluir documento:', errors)
     });
 }
 
-const isArchived = computed(() => !!props.process.archived_at);
+// Funções para Tarefas
+function openNewTaskModal() {
+    editingTask.value = null;
+    taskForm.reset();
+    taskForm.status = 'Pendente'; // Status padrão para nova tarefa
+    taskForm.id = null;
+    showTaskDialog.value = true;
+}
 
-// Removido: const route = routeHelper; // Não é mais necessário, usamos routeHelper diretamente
+function openEditTaskModal(task: ProcessTask) {
+    editingTask.value = task;
+    taskForm.id = task.id;
+    taskForm.title = task.title;
+    taskForm.description = task.description || '';
+    taskForm.due_date = task.due_date ? task.due_date.substring(0,10) : ''; // Formato YYYY-MM-DD
+    taskForm.responsible_user_id = task.responsible_user_id ? String(task.responsible_user_id) : null;
+    taskForm.status = task.status || 'Pendente';
+    showTaskDialog.value = true;
+}
+
+function submitProcessTask() {
+    const dataToSubmit = {
+        ...taskForm.data(),
+        responsible_user_id: taskForm.responsible_user_id === 'null' ? null : taskForm.responsible_user_id,
+    };
+
+    if (editingTask.value) { // Atualizar tarefa existente
+        taskForm.transform(() => dataToSubmit).put(routeHelper('processes.tasks.update', { process: props.process.id, task: editingTask.value!.id }), {
+            preserveScroll: true,
+            onSuccess: () => {
+                showTaskDialog.value = false;
+                taskForm.reset();
+                editingTask.value = null;
+                router.reload({ only: ['process'] });
+            },
+            onError: (errors) => console.error('Erro ao atualizar tarefa:', errors)
+        });
+    } else { // Criar nova tarefa
+        taskForm.transform(() => dataToSubmit).post(routeHelper('processes.tasks.store', props.process.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                showTaskDialog.value = false;
+                taskForm.reset();
+                router.reload({ only: ['process'] });
+            },
+            onError: (errors) => console.error('Erro ao criar tarefa:', errors)
+        });
+    }
+}
+
+function openDeleteTaskDialog(task: ProcessTask) {
+    taskToDelete.value = task;
+    showDeleteTaskDialog.value = true;
+}
+
+function submitDeleteTask() {
+    if (!taskToDelete.value) return;
+    taskDeleteForm.delete(routeHelper('processes.tasks.destroy', { process: props.process.id, task: taskToDelete.value.id }), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showDeleteTaskDialog.value = false;
+            taskToDelete.value = null;
+            router.reload({ only: ['process'] });
+        },
+        onError: (errors) => console.error('Erro ao excluir tarefa:', errors)
+    });
+}
+
+
+const isArchived = computed(() => !!props.process.archived_at);
 
 </script>
 
@@ -554,27 +570,35 @@ const isArchived = computed(() => !!props.process.archived_at);
                     <div v-if="activeMainTab === 'tasks'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Lista de Tarefas</h3>
-                            <Button variant="outline" size="sm" @click="console.log('Abrir modal nova tarefa para processo ID:', process.id)" :disabled="isArchived">
+                            <Button variant="outline" size="sm" @click="openNewTaskModal" :disabled="isArchived">
                                 <PlusCircle class="h-4 w-4 mr-2" /> Nova Tarefa
                             </Button>
                         </div>
                         <div v-if="process.tasks && process.tasks.length > 0" class="space-y-3">
-                            <Card v-for="task in process.tasks" :key="task.id" class="hover:shadow-md transition-shadow">
+                            <Card v-for="task_item in process.tasks" :key="task_item.id" class="hover:shadow-md transition-shadow">
                                 <CardContent class="p-4 flex items-start justify-between gap-3">
-                                    <div>
-                                        <p class="font-semibold text-gray-800 dark:text-gray-100">{{ task.title }}</p>
-                                        <p v-if="task.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{{ task.description }}</p>
+                                    <div class="flex-grow min-w-0">
+                                        <p class="font-semibold text-gray-800 dark:text-gray-100">{{ task_item.title }}</p>
+                                        <p v-if="task_item.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">{{ task_item.description }}</p>
                                         <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2 flex-wrap">
-                                            <span class="flex items-center"><UserCircle2 class="h-3.5 w-3.5 mr-1"/> {{ task.responsible_user?.name || 'N/A' }}</span>
-                                            <span class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> {{ formatDate(task.due_date) }}</span>
+                                            <span v-if="task_item.responsible_user" class="flex items-center"><UserCircle2 class="h-3.5 w-3.5 mr-1"/> {{ task_item.responsible_user?.name || 'N/A' }}</span>
+                                            <span v-if="task_item.due_date" class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> {{ formatDate(task_item.due_date) }}</span>
                                         </div>
                                     </div>
-                                    <div class="text-right flex-shrink-0">
-                                        <Badge :variant="task.is_overdue ? 'destructive' : (task.status === 'Concluída' ? 'default' : 'outline')"
+                                    <div class="text-right flex-shrink-0 space-y-1">
+                                        <Badge :variant="task_item.is_overdue ? 'destructive' : (task_item.status === 'Concluída' ? 'default' : 'outline')"
                                                class="text-xs whitespace-nowrap">
-                                            {{ task.is_overdue ? 'Atrasada' : task.status }}
+                                            {{ task_item.is_overdue ? 'Atrasada' : task_item.status }}
                                         </Badge>
-                                       </div>
+                                        <div class="flex space-x-1 justify-end mt-1">
+                                            <Button variant="ghost" size="icon" class="h-7 w-7" @click="openEditTaskModal(task_item)" :disabled="isArchived" title="Editar Tarefa">
+                                                <Edit3 class="h-3.5 w-3.5 text-gray-500 hover:text-indigo-600" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" class="h-7 w-7" @click="openDeleteTaskDialog(task_item)" :disabled="isArchived" title="Excluir Tarefa">
+                                                <Trash2 class="h-3.5 w-3.5 text-gray-500 hover:text-red-600" />
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </CardContent>
                             </Card>
                         </div>
@@ -754,13 +778,106 @@ const isArchived = computed(() => !!props.process.archived_at);
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
-                    <Button variant="outline" type="button" @click="showDeleteProcessDocumentDialog = false; processDocumentToDelete = null;">Cancelar</Button>
+                    <DialogClose as-child><Button variant="outline" type="button" @click="showDeleteProcessDocumentDialog = false; processDocumentToDelete = null;">Cancelar</Button></DialogClose>
                     <Button variant="destructive" :disabled="processDocumentDeleteForm.processing" @click="submitDeleteProcessDocument">
                         <svg v-if="processDocumentDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
                         {{ processDocumentDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showTaskDialog" @update:open="showTaskDialog = $event">
+            <DialogContent class="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>{{ editingTask ? 'Editar Tarefa' : 'Nova Tarefa para o Caso' }}</DialogTitle>
+                    <DialogDescription>
+                        {{ editingTask ? 'Modifique os detalhes da tarefa.' : 'Preencha os detalhes da nova tarefa.' }}
+                    </DialogDescription>
+                </DialogHeader>
+                <form @submit.prevent="submitProcessTask" class="space-y-4 mt-4">
+                    <div>
+                        <Label for="taskTitle">Título <span class="text-red-500">*</span></Label>
+                        <Input id="taskTitle" v-model="taskForm.title" required />
+                        <div v-if="taskForm.errors.title" class="text-sm text-red-500 mt-1">{{ taskForm.errors.title }}</div>
+                    </div>
+                    <div>
+                        <Label for="taskDescription">Descrição</Label>
+                        <Textarea id="taskDescription" v-model="taskForm.description" rows="3" />
+                        <div v-if="taskForm.errors.description" class="text-sm text-red-500 mt-1">{{ taskForm.errors.description }}</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="taskDueDate">Data de Vencimento</Label>
+                            <Input id="taskDueDate" type="date" v-model="taskForm.due_date" />
+                            <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
+                        </div>
+                        <div>
+                            <Label for="taskResponsible">Responsável</Label>
+                            <Select v-model="taskForm.responsible_user_id">
+                                <SelectTrigger id="taskResponsible">
+                                    <SelectValue placeholder="Selecionar responsável" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="null">Ninguém</SelectItem>
+                                    <SelectItem v-for="user in props.users" :key="user.id" :value="String(user.id)">
+                                        {{ user.name }}
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <div v-if="taskForm.errors.responsible_user_id" class="text-sm text-red-500 mt-1">{{ taskForm.errors.responsible_user_id }}</div>
+                        </div>
+                    </div>
+                     <div>
+                        <Label for="taskStatus">Status da Tarefa</Label>
+                        <Select v-model="taskForm.status">
+                            <SelectTrigger id="taskStatus">
+                                <SelectValue placeholder="Selecionar status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem v-for="statusOpt in taskStatusOptions" :key="statusOpt.key" :value="statusOpt.key">
+                                    {{ statusOpt.label }}
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                         <div v-if="taskForm.errors.status" class="text-sm text-red-500 mt-1">{{ taskForm.errors.status }}</div>
+                    </div>
+                    <DialogFooter class="mt-6">
+                        <DialogClose as-child><Button type="button" variant="outline" @click="showTaskDialog = false; taskForm.reset(); editingTask = null; taskForm.clearErrors();">Cancelar</Button></DialogClose>
+                        <Button type="submit" :disabled="taskForm.processing">
+                            <PlusCircle class="mr-2 h-4 w-4" v-if="!editingTask && !taskForm.processing" />
+                            <Edit3 class="mr-2 h-4 w-4" v-if="editingTask && !taskForm.processing" />
+                            <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {{ taskForm.processing ? 'Salvando...' : (editingTask ? 'Salvar Alterações' : 'Salvar Tarefa') }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showDeleteTaskDialog" @update:open="showDeleteTaskDialog = $event">
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Confirmar Exclusão de Tarefa</DialogTitle>
+                    <DialogDescription v-if="taskToDelete">
+                        Tem certeza de que deseja excluir a tarefa <strong class="font-medium">"{{ taskToDelete.title }}"</strong>?
+                        Esta ação não poderá ser desfeita.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter class="mt-4">
+                    <Button variant="outline" @click="showDeleteTaskDialog = false; taskToDelete = null;">Cancelar</Button>
+                    <Button variant="destructive" @click="submitDeleteTask" :disabled="taskDeleteForm.processing">
+                         <svg v-if="taskDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {{ taskDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
                     </Button>
                 </DialogFooter>
             </DialogContent>

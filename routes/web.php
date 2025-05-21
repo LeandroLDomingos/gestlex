@@ -79,14 +79,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/processes/{process}/documents/{document}', [ProcessController::class, 'destroyProcessDocument'])->name('processes.documents.destroy');
 
 
-    // Tarefas de Processo (assumindo que estão no ProcessController ou em um dedicado TaskController)
-    // Se você criar um TaskController:
-    // Route::post('/processes/{process}/tasks', [TaskController::class, 'storeForProcess'])->name('processes.tasks.store');
-    // Route::resource('tasks', TaskController::class)->except(['index', 'create', 'store']); // Para update, show, destroy de tarefas individuais
-    // Se estiver no ProcessController:
-    // Route::post('/processes/{process}/tasks', [ProcessController::class, 'storeProcessTask'])->name('processes.tasks.store');
-    // Route::put('/tasks/{task}', [ProcessController::class, 'updateProcessTask'])->name('tasks.update');
-    // Route::delete('/tasks/{task}', [ProcessController::class, 'destroyProcessTask'])->name('tasks.destroy');
+    // --- ROTAS PARA TAREFAS DE PROCESSO ---
+    Route::post('/processes/{process}/tasks', [ProcessController::class, 'storeProcessTask'])
+        ->name('processes.tasks.store');
+    Route::put('/processes/{process}/tasks/{task}', [ProcessController::class, 'updateProcessTask']) // Ou PATCH
+        ->name('processes.tasks.update');
+    Route::delete('/processes/{process}/tasks/{task}', [ProcessController::class, 'destroyProcessTask'])
+        ->name('processes.tasks.destroy');
 
 
     // Rotas de Configurações (se o arquivo settings.php for para isso)
