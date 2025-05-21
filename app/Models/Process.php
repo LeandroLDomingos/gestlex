@@ -73,7 +73,7 @@ class Process extends Model
     {
         return $this->hasMany(ProcessAnnotation::class, 'process_id', 'id')->latest();
     }
-    
+
     /**
      * Get all of the history entries for the Process.
      */
@@ -82,14 +82,6 @@ class Process extends Model
         return $this->hasMany(ProcessHistoryEntry::class, 'process_id', 'id')->latest();
     }
 
-    /**
-     * Get all of the documents for the Process.
-     */
-    public function documents(): HasMany
-    {
-        return $this->hasMany(ProcessDocument::class, 'process_id', 'id')->orderBy('created_at', 'desc');
-    }
-    
     /**
      * Get all of the tasks for the Process.
      */
@@ -151,7 +143,7 @@ class Process extends Model
         self::PRIORITY_MEDIUM => 'Média',
         self::PRIORITY_HIGH => 'Alta',
     ];
-    
+
     // Constantes para Status
     public const STATUS_OPEN = 'Aberto';
     public const STATUS_IN_PROGRESS = 'Em Andamento';
@@ -200,7 +192,7 @@ class Process extends Model
         }
         return self::PRIORITIES[$this->priority] ?? ucfirst((string) $this->priority);
     }
-    
+
     public function getStatusLabelAttribute(): string
     {
         if (is_null($this->status)) {
@@ -224,10 +216,24 @@ class Process extends Model
      * @var array
      */
     protected $appends = [
-        'workflow_label', 
+        'workflow_label',
         'stage_label',
         'priority_label',
         'status_label',
         // 'is_archived' // Opcional: Adicionar 'is_archived' se quiser que o método seja serializado como atributo
     ];
+
+    /**
+     * Os documentos associados a este processo (caso).
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(ProcessDocument::class);
+    }
+
+    // Relacionamento para os contatos associados a este processo (se já não existir)
+    public function contacts()
+    {
+        return $this->belongsToMany(Contact::class, 'contact_process');
+    }
 }

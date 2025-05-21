@@ -86,7 +86,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('processes.tasks.update');
     Route::delete('/processes/{process}/tasks/{task}', [ProcessController::class, 'destroyProcessTask'])
         ->name('processes.tasks.destroy');
-
+    Route::get('/processos/{process}/documentos/{document}/download', [ProcessController::class, 'documentDownload'])
+        ->name('process-documents.download');
 
     // Rotas de Configurações (se o arquivo settings.php for para isso)
     // require __DIR__ . '/settings.php';

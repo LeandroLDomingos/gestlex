@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Head, Link, usePage, useForm, router } from '@inertiajs/vue3'
-import AppLayout from '@/layouts/AppLayout.vue'
+import AppLayout from '@/layouts/AppLayout.vue' // Presumindo que o caminho está correto
 import { Button } from '@/components/ui/button'
 import {
     Dialog,
@@ -21,21 +21,67 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Edit, Trash2, PlusCircle, Paperclip, UserCircle2, MessageSquare, History, LinkIcon, UploadCloud, Download } from 'lucide-vue-next';
 
-// Importando os tipos de um ficheiro dedicado (ex: @/types/index.ts ou @/types)
-// Certifique-se de que o caminho para o seu ficheiro de tipos está correto.
+// Importando os tipos de um ficheiro dedicado
 import type {
     Address,
     ContactEmail,
     ContactPhone,
     ContactAnnotation,
     ContactDocument,
-    RelatedProcess,
+    RelatedProcess, // Esta interface deve incluir 'documents?: ProcessDocument[]'
+    ProcessDocument, // Certifique-se que este tipo está definido
     Contact,
     BreadcrumbItem,
+    User, // Adicionado para o tipo de 'user' em ContactAnnotation
 } from '@/types'; // Ou '@/types/index.ts' ou o caminho correto
 
+// Definindo o tipo para o uploader de ContactDocument, se não estiver já no tipo ContactDocument
+interface DocumentUploader extends User {
+    // Se houver campos específicos para uploader, adicione aqui
+}
+
+// Atualizando ContactDocument para incluir uploader e url, se vierem do backend
+interface ExtendedContactDocument extends ContactDocument {
+    uploader?: DocumentUploader | null;
+    url?: string; // URL para download direto, se fornecida pelo backend
+    uploaded_at?: string; // ou created_at, conforme seu backend
+    // 'name' já deve estar em ContactDocument, se não, adicione:
+    // name: string;
+}
+
+// Atualizando ContactAnnotation para incluir user
+interface ExtendedContactAnnotation extends ContactAnnotation {
+    user?: User | null;
+    user_name?: string; // Se o backend envia user_name diretamente
+}
+
+// Atualizando RelatedProcess para incluir ProcessDocument[]
+interface ExtendedRelatedProcess extends RelatedProcess {
+    documents?: ProcessDocument[]; // Garanta que este tipo está definido e correto
+    responsible?: User | null; // Para o responsável pelo processo
+    // Adicione outros campos que seu backend envia para RelatedProcess
+    // Ex: number_process?: string;
+    // Ex: workflow_label?: string;
+    // Ex: status?: string;
+}
+
+
+// Atualizando a prop Contact para usar os tipos estendidos
+interface ExtendedContact extends Contact {
+    emails?: ContactEmail[];
+    phones?: ContactPhone[];
+    annotations?: ExtendedContactAnnotation[];
+    documents?: ExtendedContactDocument[];
+    processes?: ExtendedRelatedProcess[];
+    administrator?: Contact | null; // Se administrator_id referencia outro Contact
+    // Adicione outros campos que seu backend envia para Contact
+    // Ex: gender_label?: string;
+    // Ex: marital_status_label?: string;
+    // Ex: street?: string; // Se 'address' for um objeto, ajuste. Se for string, 'address' já existe.
+}
+
 const props = defineProps<{
-  contact: Contact;
+  contact: ExtendedContact; // Usando o tipo estendido
 }>();
 
 const activeTab = ref<'details' | 'documents' | 'cases' | 'history'>('details');
@@ -43,14 +89,14 @@ const deleteForm = useForm({});
 const showNewAnnotationForm = ref(false);
 const showUploadDocumentDialog = ref(false);
 
-// Estado para exclusão de documento
+// Estado para exclusão de documento de contato
 const showDeleteDocumentDialog = ref(false);
-const documentToDelete = ref<ContactDocument | null>(null);
+const documentToDelete = ref<ExtendedContactDocument | null>(null);
 const documentDeleteForm = useForm({});
 
 // Estado para exclusão de anotação
 const showDeleteAnnotationDialog = ref(false);
-const annotationToDelete = ref<ContactAnnotation | null>(null);
+const annotationToDelete = ref<ExtendedContactAnnotation | null>(null);
 const annotationDeleteForm = useForm({});
 
 
@@ -75,7 +121,7 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
     return url;
 };
 
-function getContactDisplayName(contact?: Contact): string {
+function getContactDisplayName(contact?: ExtendedContact): string {
     if (!contact) return 'N/A';
     return contact.name || contact.business_name || 'N/A';
 }
@@ -84,7 +130,7 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => [
   { title: 'Contatos', href: routeHelper('contacts.index') },
   {
     title: getContactDisplayName(props.contact),
-    href: routeHelper('contacts.show', props.contact.id),
+    // href: routeHelper('contacts.show', props.contact.id), // A própria página, pode ser omitido ou '#'
   },
 ]);
 
@@ -154,11 +200,11 @@ function submitDocument() {
         onError: (errors) => {
             console.error('Erro ao enviar documento:', errors);
         },
-        forceFormData: true,
+        forceFormData: true, // Necessário para upload de arquivos
     });
 }
 
-function openDeleteDocumentDialog(doc: ContactDocument) {
+function openDeleteDocumentDialog(doc: ExtendedContactDocument) {
     documentToDelete.value = doc;
     showDeleteDocumentDialog.value = true;
 }
@@ -179,7 +225,7 @@ function submitDeleteDocument() {
     });
 }
 
-function openDeleteAnnotationDialog(annotation: ContactAnnotation) {
+function openDeleteAnnotationDialog(annotation: ExtendedContactAnnotation) {
     annotationToDelete.value = annotation;
     showDeleteAnnotationDialog.value = true;
 }
@@ -201,7 +247,7 @@ function submitDeleteAnnotation() {
 }
 
 
-function formatIdentifier(contact?: Contact): string {
+function formatIdentifier(contact?: ExtendedContact): string {
     if (!contact || !contact.cpf_cnpj) return 'N/A';
     const cleanedCpfCnpj = String(contact.cpf_cnpj).replace(/\D/g, '');
     if (contact.type === 'physical' && cleanedCpfCnpj.length === 11) {
@@ -215,18 +261,24 @@ function formatIdentifier(contact?: Contact): string {
 function formatDate(dateString?: string | null, includeTime = false): string {
     if (!dateString) return 'N/A';
     try {
-        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
+        // Tenta garantir que a string seja interpretada como UTC se não tiver timezone explícito
+        const date = new Date(dateString.includes('T') || dateString.includes('Z') || /\s\d{2}:\d{2}:\d{2}/.test(dateString) ? dateString : dateString + 'T00:00:00Z');
+        if (isNaN(date.getTime())) { // Verifica se a data é inválida
+            return dateString; // Retorna a string original se inválida
+        }
+
         const options: Intl.DateTimeFormatOptions = {
             day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
         };
         if (includeTime) {
             options.hour = '2-digit';
             options.minute = '2-digit';
+            // options.second = '2-digit'; // Opcional: incluir segundos
         }
         return date.toLocaleDateString('pt-BR', options);
     } catch (e) {
         console.error("Erro ao formatar data:", dateString, e);
-        return dateString;
+        return dateString; // Retorna a string original em caso de erro
     }
 }
 
@@ -235,15 +287,25 @@ function formatPhoneNumber(phoneString?: string | null): string {
     const cleaned = String(phoneString).replace(/\D/g, '');
     if (cleaned.length === 11) { return cleaned.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3'); }
     if (cleaned.length === 10) { return cleaned.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3'); }
-    if (cleaned.length === 9 && cleaned.startsWith('9')) { return cleaned.replace(/(\d{5})(\d{4})/, '$1-$2'); }
+    if (cleaned.length === 9 && (cleaned.startsWith('9') || cleaned.startsWith('8') || cleaned.startsWith('7'))) { // Ajustado para cobrir mais prefixos de celular
+      return cleaned.replace(/(\d{1})(\d{4})(\d{4})/, '$1 $2-$3'); // Ex: 9 1234-5678
+    }
     if (cleaned.length === 8) { return cleaned.replace(/(\d{4})(\d{4})/, '$1-$2'); }
     return phoneString;
 }
 
-const route = routeHelper;
+// Função para obter URL de download de documentos de processo (necessita de rota no backend)
+function getProcessDocumentDownloadUrl(processId: number, documentId: number): string {
+    // Adapte o nome da rota conforme definido no seu backend (ex: 'processes.documents.download')
+    return routeHelper('process-documents.download', { process: processId, document: documentId });
+}
+
+
+const route = routeHelper; // Para uso simplificado no template
 
 onMounted(() => {
   // console.log('Componente Show.vue montado. Props:', props);
+  // console.log('Casos vinculados:', props.contact.processes);
 });
 
 </script>
@@ -338,7 +400,7 @@ onMounted(() => {
                     </form>
 
                     <div v-if="contact.annotations && contact.annotations.length > 0" class="space-y-3 max-h-96 overflow-y-auto pr-1">
-                        <div v-for="annotation in contact.annotations.slice().reverse()" :key="annotation.id" class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-xs relative group">
+                        <div v-for="annotation in [...contact.annotations].reverse()" :key="annotation.id" class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-xs relative group">
                             <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ annotation.content }}</p>
                             <p class="text-gray-500 dark:text-gray-400 mt-1 text-right">
                                 {{ annotation.user_name || annotation.user?.name || 'Sistema' }} - {{ formatDate(annotation.created_at, true) }}
@@ -371,10 +433,13 @@ onMounted(() => {
               <button @click="activeTab = 'cases'" :class="['flex-1 py-4 px-1 text-center border-b-2 font-medium text-sm whitespace-nowrap', activeTab === 'cases' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600']">
                 Casos Vinculados ({{ contact.processes?.length || 0 }})
               </button>
-              </nav>
+              <!-- <button @click="activeTab = 'history'" :class="['flex-1 py-4 px-1 text-center border-b-2 font-medium text-sm whitespace-nowrap', activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600']">
+                Histórico
+              </button> -->
+            </nav>
           </div>
 
-          <div class="p-6 overflow-y-auto h-[calc(100%-theme(spacing.12))]">
+          <div class="p-6 overflow-y-auto h-[calc(100%-theme(spacing.12))] tab-content-container">
             <div v-if="activeTab === 'details'" class="space-y-6">
                 <div v-if="contact.type === 'physical'">
                     <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Dados Pessoais</h3>
@@ -398,13 +463,20 @@ onMounted(() => {
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Atividade Principal</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.business_activity || 'N/A' }}</dd></div>
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Estado de Tributação</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.tax_state || 'N/A' }}</dd></div>
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Município de Tributação</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.tax_city || 'N/A' }}</dd></div>
-                    <div v-if="contact.administrator_id" class="sm:col-span-2"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Administrador ID</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.administrator_id }}</dd></div>
+                    <div v-if="contact.administrator" class="sm:col-span-2">
+                        <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Administrador</dt>
+                        <dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">
+                            <Link :href="route('contacts.show', contact.administrator.id)" class="text-indigo-600 hover:underline dark:text-indigo-400">
+                                {{ getContactDisplayName(contact.administrator) }}
+                            </Link>
+                        </dd>
+                    </div>
                     </dl>
                 </div>
                 <div class="pt-4">
                     <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Endereço</h3>
-                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4" v-if="contact.address">
-                    <div class="sm:col-span-2"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Logradouro</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.street || 'N/A' }}{{ contact.number ? ', ' + contact.number : '' }}</dd></div>
+                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4" v-if="contact.address || contact.zip_code">
+                    <div class="sm:col-span-2"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Logradouro</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.address || 'N/A' }}{{ contact.number ? ', ' + contact.number : '' }}</dd></div>
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Complemento</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.complement || 'N/A' }}</dd></div>
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Bairro</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.neighborhood || 'N/A' }}</dd></div>
                     <div class="sm:col-span-1"><dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Cidade</dt><dd class="mt-1 text-sm text-gray-900 dark:text-gray-200">{{ contact.city || 'N/A' }}</dd></div>
@@ -507,15 +579,15 @@ onMounted(() => {
                             <div class="flex items-center gap-3 min-w-0">
                                 <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <div class="flex-grow min-w-0">
-                                    <a :href="doc.url" target="_blank" :download="doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.name }}</a>
+                                    <a :href="doc.url || `/storage/${doc.path}`" target="_blank" :download="doc.file_name || doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.file_name || doc.name }}</a>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                        Enviado em: {{ formatDate(doc.uploaded_at) }} {{ doc.size ? `(${doc.size})` : '' }}
+                                        Enviado por: {{ doc.uploader?.name || 'N/A' }} em: {{ formatDate(doc.uploaded_at || doc.created_at) }} {{ doc.size ? `(${doc.size})` : '' }}
                                     </p>
                                      <p v-if="doc.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-words">{{ doc.description }}</p>
                                 </div>
                             </div>
                             <div class="flex-shrink-0 space-x-1">
-                                <a :href="doc.url" target="_blank" :download="doc.name">
+                                <a :href="doc.url || `/storage/${doc.path}`" target="_blank" :download="doc.file_name || doc.name">
                                     <Button variant="ghost" size="icon" class="h-8 w-8" title="Baixar documento">
                                         <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
                                     </Button>
@@ -539,30 +611,70 @@ onMounted(() => {
                         </Button>
                     </Link>
                 </div>
-                 <div v-if="contact.processes && contact.processes.length > 0" class="space-y-3">
+                 <div v-if="contact.processes && contact.processes.length > 0" class="space-y-4"> 
                     <Card v-for="process_case in contact.processes" :key="process_case.id" class="hover:shadow-md transition-shadow">
-                        <CardContent class="p-3">
-                             <Link :href="route('processes.show', process_case.id)" class="block group">
+                        <CardContent class="p-4">
+                            <Link :href="route('processes.show', process_case.id)" class="block group mb-3">
                                 <div class="flex justify-between items-start">
-                                    <p class="font-semibold text-indigo-600 dark:text-indigo-400 group-hover:underline">{{ process_case.title }}</p>
-                                    <Badge :variant="process_case.status === 'Concluído' ? 'default' : (process_case.status === 'Em Andamento' ? 'secondary' : 'outline')">{{ process_case.status || 'N/A' }}</Badge>
+                                    <p class="font-semibold text-indigo-600 dark:text-indigo-400 group-hover:underline text-base">
+                                        {{ process_case.title || process_case.number_process || 'Caso sem título/número' }}
+                                    </p>
+                                    <Badge :variant="process_case.status === 'Concluído' ? 'default' : (process_case.status === 'Em Andamento' ? 'secondary' : 'outline')">{{ process_case.status_label || process_case.status || 'N/A' }}</Badge>
                                 </div>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    Workflow: {{ process_case.workflow_label || 'N/A' }} | Última Atualização: {{ formatDate(process_case.updated_at, true) }}
+                                    Workflow: {{ process_case.workflow_label || 'N/A' }}
+                                </p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">
+                                     Última Atualização: {{ formatDate(process_case.updated_at, true) }}
+                                </p>
+                                <p v-if="process_case.responsible" class="text-xs text-gray-500 dark:text-gray-400">
+                                    Responsável: {{ process_case.responsible.name }}
                                 </p>
                             </Link>
-                        </CardContent>
+
+                            <div v-if="process_case.documents && process_case.documents.length > 0" class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Documentos do Caso:</h4>
+                                <ul class="space-y-2">
+                                    <li v-for="doc in process_case.documents" :key="doc.id" class="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-700/60 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                                        <div class="flex items-center min-w-0 gap-2">
+                                            <Paperclip class="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                            <div class="flex-grow min-w-0">
+                                                <span class="text-gray-800 dark:text-gray-200 break-words font-medium" :title="doc.file_name || doc.name">
+                                                    {{ doc.file_name || doc.name || 'Nome do arquivo não disponível' }}
+                                                </span>
+                                                <p v-if="doc.description" class="text-gray-500 dark:text-gray-400 text-xs mt-0.5 break-words">{{ doc.description }}</p>
+                                                <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                                    Adicionado em: {{ formatDate(doc.created_at, false) }}
+                                                    <span v-if="doc.size"> - {{ typeof doc.size === 'number' ? (doc.size / 1024 / 1024).toFixed(2) + ' MB' : doc.size }}</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <a :href="getProcessDocumentDownloadUrl(process_case.id, doc.id)"
+                                           target="_blank"
+                                           :download="doc.file_name || doc.name"
+                                           class="ml-2 flex-shrink-0"
+                                           title="Baixar documento do caso">
+                                            <Button variant="ghost" size="icon" class="h-8 w-8">
+                                                <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400" />
+                                            </Button>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                            <p v-else-if="!process_case.documents || process_case.documents.length === 0" class="text-xs text-gray-500 dark:text-gray-400 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                Nenhum documento encontrado para este caso.
+                            </p>
+                            </CardContent>
                     </Card>
                 </div>
                 <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum caso vinculado a este contato.</p>
             </div>
-            
             <div v-if="activeTab === 'history'" class="space-y-4 py-4">
                 <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Histórico de Alterações</h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
                     Funcionalidade de histórico ainda não implementada.
                 </p>
-                </div>
+            </div>
           </div>
         </div>
       </div>
@@ -573,7 +685,7 @@ onMounted(() => {
             <DialogHeader>
                 <DialogTitle>Confirmar Exclusão de Documento</DialogTitle>
                 <DialogDescription v-if="documentToDelete">
-                    Tem certeza de que deseja excluir o documento <strong class="font-medium">{{ documentToDelete.name }}</strong>? Esta ação não poderá ser desfeita.
+                    Tem certeza de que deseja excluir o documento <strong class="font-medium">{{ documentToDelete.file_name || documentToDelete.name }}</strong>? Esta ação não poderá ser desfeita.
                 </DialogDescription>
                  <DialogDescription v-else>
                     Tem certeza de que deseja excluir este documento? Esta ação não poderá ser desfeita.
@@ -633,6 +745,6 @@ ul li::marker { color: #6b7280; /* gray-500 */ }
 .dark .max-h-96::-webkit-scrollbar-thumb { background-color: #4b5563; /* dark:gray-600 */ }
 
 .tab-content-container > div {
-  min-height: 300px; 
+  min-height: 300px; /* Garante uma altura mínima para o conteúdo da aba */
 }
 </style>
