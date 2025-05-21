@@ -64,7 +64,7 @@ class ProcessController extends Controller
         $dateToFilter = $request->input('date_to');
         $showArchived = $request->boolean('archived', false);
 
-        $directSortableColumns = ['title', 'origin', 'negotiated_value', 'workflow', 'stage', 'priority', 'status', 'due_date', 'created_at', 'updated_at', 'archived_at'];
+        $directSortableColumns = ['title', 'origin', 'negotiated_value', 'workflow', 'stage', 'priority', 'status', 'due_date', 'created_at', 'updated_at', 'archived_at', 'pending_tasks_count']; // Adicionado pending_tasks_count
         $relationSortableColumns = ['contact.name', 'responsible.name'];
         $allowedSortColumns = array_merge($directSortableColumns, $relationSortableColumns);
 
@@ -80,6 +80,18 @@ class ProcessController extends Controller
                 'responsible:id,name',
                 'contact:id,name,business_name,type',
             ])
+            // Adicionar contagem de tarefas pendentes
+            ->withCount([
+                'tasks as pending_tasks_count' => function (Builder $query) {
+                    $query->whereNotIn('status', [Task::STATUS_COMPLETED, Task::STATUS_CANCELLED]);
+                }
+            ])
+            // Opcional: Contar tarefas atrasadas (due_date < hoje E não concluída/cancelada)
+            // ->withCount(['tasks as overdue_tasks_count' => function (Builder $query) {
+            //     $query->whereNotIn('status', [Task::STATUS_COMPLETED, Task::STATUS_CANCELLED])
+            //           ->whereNotNull('due_date')
+            //           ->whereDate('due_date', '<', now());
+            // }])
             ->when($showArchived, function ($query) {
                 $query->whereNotNull('archived_at');
             }, function ($query) {
@@ -120,6 +132,7 @@ class ProcessController extends Controller
                 ->orderBy('users.name', $sortDirection)
                 ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
+            // Se for ordenar por pending_tasks_count, o nome da coluna gerado pelo withCount é 'pending_tasks_count'
             $processesQuery->orderBy($sortBy, $sortDirection);
         }
 
@@ -127,7 +140,7 @@ class ProcessController extends Controller
 
         // Base query para contagens, aplicando filtros globais
         $baseCountQueryForSidebar = function () use ($search, $responsibleFilter, $priorityFilter, $statusFilter, $dateFromFilter, $dateToFilter) {
-            $query = Process::query(); // Começa uma nova query
+            $query = Process::query();
             $query = $this->applySearchFilters($query, $search);
             $query
                 ->when($responsibleFilter, fn($q, $val) => $q->where('responsible_id', $val))
@@ -821,7 +834,7 @@ class ProcessController extends Controller
             'responsible_user_id' => 'nullable|exists:users,id',
             'status' => ['required', 'string', Rule::in(array_keys(Task::STATUSES ?? ['Pendente', 'Em Andamento', 'Concluída', 'Cancelada']))], // Assumindo Task::STATUSES
         ]);
-        
+
         $validatedData['completed_at'] = ($validatedData['status'] === 'Concluída' && !$task->completed_at) ? now() : $task->completed_at;
         if ($validatedData['status'] !== 'Concluída') {
             $validatedData['completed_at'] = null;

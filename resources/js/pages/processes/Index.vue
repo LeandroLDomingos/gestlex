@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon } from 'lucide-vue-next'; // Adicionado ArchiveIcon
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle } from 'lucide-vue-next'; // Adicionado AlertTriangle
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
@@ -63,12 +63,14 @@ interface RelatedContact {
 interface Process {
     id: string;
     title?: string;
-    pendencies?: string | number | null;
+    // pendencies?: string | number | null; // Removido, usaremos pending_tasks_count
+    pending_tasks_count: number; // <--- ADICIONADO: Esta propriedade virá do backend
     contact: RelatedContact | null;
     responsible: User | null;
     status: string | null;
-    updated_at: string; // Corrigido de last_update para updated_at
-    tags: string[] | null;
+    status_label?: string; // Adicionado para consistência, se o backend enviar
+    updated_at: string;
+    tags: string[] | null; // Mantido se você usa tags para outra coisa
     workflow: string;
     workflow_label?: string;
     stage: number;
@@ -78,13 +80,13 @@ interface Process {
     created_at: string;
     priority?: 'low' | 'medium' | 'high';
     priority_label?: string;
-    archived_at?: string | null; // Adicionado para saber se está arquivado
+    archived_at?: string | null;
 }
 
 interface WorkflowData {
     key: string;
     label: string;
-    count: number; // Contagem de casos ativos para este workflow
+    count: number;
     stages: { key: number; label: string }[];
 }
 
@@ -94,7 +96,7 @@ interface SelectOption {
 }
 
 interface ProcessIndexProps {
-    processes: PaginatedResponse<Process>;
+    processes: PaginatedResponse<Process>; // Agora Process inclui pending_tasks_count
     filters?: {
         search?: string;
         workflow?: Process['workflow'];
@@ -104,12 +106,12 @@ interface ProcessIndexProps {
         status?: string;
         date_from?: string;
         date_to?: string;
-        archived?: string | boolean; // Pode vir como string 'true'/'false' ou boolean
+        archived?: string | boolean;
     };
     workflows?: WorkflowData[];
     currentWorkflowStages?: { key: number; label: string }[];
-    allProcessesCount?: number; // Contagem de casos ativos
-    archivedProcessesCount?: number; // Contagem de casos arquivados
+    allProcessesCount?: number;
+    archivedProcessesCount?: number;
     usersForFilter?: User[];
     statusesForFilter?: SelectOption[];
     prioritiesForFilter?: SelectOption[];
@@ -144,7 +146,7 @@ const sortColumn = ref<string>(initialSortBy);
 const sortDirection = ref<'asc' | 'desc'>(initialSortDirection);
 
 const sortableColumns: Record<string, string> = {
-    pendencies: 'pendencies_count',
+    pending_tasks_count: 'pending_tasks_count', // <--- ADICIONADO para ordenação
     contact_name: 'contact.name',
     responsible_name: 'responsible.name',
     stage: 'stage',
@@ -203,7 +205,7 @@ function selectAllCases() {
 
 function selectWorkflow(workflowKey: string) {
     if (activeWorkflow.value === workflowKey && !isShowingArchived.value) {
-        activeWorkflow.value = null; // Desseleciona se clicar no mesmo workflow ativo
+        activeWorkflow.value = null;
         activeStage.value = null;
     } else {
         activeWorkflow.value = workflowKey;
@@ -223,7 +225,7 @@ function selectArchivedCases() {
 
 function selectStage(stageKey: number | null) {
     activeStage.value = stageKey;
-    applyAllFilters(); // Não precisa passar `isShowingArchived` pois ele já está no estado correto
+    applyAllFilters();
 }
 
 const handleSort = (columnKey: SortableColumnKey) => {
@@ -247,9 +249,6 @@ const applyAllFilters = () => {
     
     if (isShowingArchived.value) {
         queryParams.archived = true;
-        // Se estamos mostrando arquivados, não filtramos por workflow ou estágio específico
-        // a menos que você queira permitir isso (ex: arquivados de um workflow específico)
-        // Por agora, ao clicar em "Arquivados", workflow e stage são limpos.
     } else {
         if (activeWorkflow.value) queryParams.workflow = activeWorkflow.value;
         if (activeStage.value !== null) queryParams.stage = activeStage.value;
@@ -296,12 +295,13 @@ watch(searchTerm, () => {
 });
 
 const tableHeaders: { key: string; label: string; sortable: boolean, class?: string }[] = [
-    { key: 'pendencies', label: 'Pendências', sortable: true, class: 'w-[15%]' },
-    { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[25%]' },
+    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[25%]' }, // Movido Título para o início
+    { key: 'pending_tasks_count', label: 'Pendências', sortable: true, class: 'w-[10%] text-center' }, // Ajustado key e classe
+    { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[20%]' },
     { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
     { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[15%]' },
-    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' }, // Corrigido para updated_at
-    { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[15%]' }, // Alterado de tags para priority
+    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' },
+    // { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[10%]' }, // Removido prioridade para simplificar
 ];
 
 </script>
@@ -518,7 +518,7 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                             <option value="workflow">Workflow</option>
                             <option value="priority">Prioridade</option>
                             <option value="status">Status do Caso</option>
-                        </select>
+                            <option value="pending_tasks_count">Pendências</option> </select>
                         <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1 h-9 w-9">
                             <ArrowUpDown class="h-4 w-4" :class="{'transform rotate-180': sortDirection === 'desc'}" />
                         </Button>
@@ -550,10 +550,24 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                         :href="route('processes.show', process_item.id)"
                                         class="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors duration-150">
                                         
-                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {{ displayValue(process_item.pendencies, 'Nenhuma') }}
-                                        </TableCell>
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {{ displayValue(process_item.title) }}
+                                            <div v-if="process_item.workflow_label" class="text-xs text-gray-500 dark:text-gray-400">{{ process_item.workflow_label }}</div>
+                                        </TableCell>
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                                            <Link :href="route('processes.show', { process: process_item.id, tab: 'tasks' })"
+                                                  v-if="process_item.pending_tasks_count > 0"
+                                                  class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold"
+                                                  :class="process_item.pending_tasks_count > 0 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100 hover:bg-yellow-200 dark:hover:bg-yellow-600' : 'bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100'"
+                                                  :title="`${process_item.pending_tasks_count} tarefa(s) pendente(s)`">
+                                                <AlertTriangle v-if="process_item.pending_tasks_count > 0" class="h-3.5 w-3.5 mr-1.5" />
+                                                {{ process_item.pending_tasks_count }}
+                                            </Link>
+                                            <span v-else class="text-xs text-gray-500 dark:text-gray-400">
+                                                Nenhuma
+                                            </span>
+                                        </TableCell>
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                             {{ displayValue(process_item.contact?.name || process_item.contact?.business_name) }}
                                         </TableCell>
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -565,12 +579,12 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {{ formatDateForTable(process_item.updated_at) }}
                                         </TableCell>
-                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        <!-- <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             <Badge v-if="process_item.priority" :variant="getPriorityVariant(process_item.priority)" class="text-xs">
                                                 {{ process_item.priority_label || process_item.priority }}
                                             </Badge>
                                             <span v-else>N/A</span>
-                                        </TableCell>
+                                        </TableCell> -->
                                     </Link>
                                 </template>
                                 <TableRow v-else>
