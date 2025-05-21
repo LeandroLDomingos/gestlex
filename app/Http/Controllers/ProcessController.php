@@ -685,7 +685,7 @@ class ProcessController extends Controller
     public function storeProcessDocument(Request $request, Process $process)
     {
         $data = $request->validate([
-            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,txt|max:20480', // Max 20MB
+            'file' => 'required|file', // Max 20MB
             'description' => 'nullable|string|max:255',
         ]);
 
