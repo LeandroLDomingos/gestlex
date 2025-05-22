@@ -252,3 +252,37 @@ export interface RelatedProcess {
 }
 
 
+// Interface para Tarefa (Task)
+// Esta é a definição principal para a sua Task
+export type TaskStatus = 'Pendente' | 'Em Andamento' | 'Concluída' | 'Cancelada'; // Use as chaves exatas do seu backend
+export type TaskPriority = 'Baixa' | 'Média' | 'Alta'; // Use as chaves exatas do seu backend
+
+export interface Task {
+  id: number | string; // UUID
+  title: string;
+  description?: string | null;
+  due_date?: string | null; // Formato YYYY-MM-DD
+  status: TaskStatus;
+  priority: TaskPriority;
+  completed_at?: string | null; // Datetime
+  created_at: string;
+  updated_at: string;
+
+  process_id?: number | string | null; // ID do Processo se vinculada
+  process?: RelatedProcess | null;     // Objeto Processo resumido
+
+  contact_id?: number | string | null; // ID do Contato se vinculada diretamente
+  contact?: Contact | null;           // Objeto Contato resumido (pode usar um ContactSummary)
+
+  responsible_user_id?: number | string | null; // ID do responsável principal
+  responsibleUser?: User | null;               // Objeto User do responsável principal
+
+  // Se uma tarefa pode ter múltiplos responsáveis ou múltiplos contatos vinculados (além do principal)
+  responsibles?: User[];        // Array de usuários responsáveis (via tabela pivot)
+  // associatedContacts?: Contact[]; // Array de contatos associados (via tabela pivot) - renomeado de 'contacts' para evitar conflito
+
+  // Accessors (se o backend os envia ou se você calcula no frontend)
+  status_label?: string;
+  priority_label?: string;
+  is_overdue?: boolean;
+}

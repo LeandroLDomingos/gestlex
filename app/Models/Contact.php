@@ -77,29 +77,25 @@ class Contact extends Model
         return $this->hasMany(Process::class, 'contact_id', 'id')->orderBy('updated_at', 'desc');
     }
 
-    // Se um contato (Pessoa Física) pode ser administrador de outro contato (Pessoa Jurídica)
-    // Este é o inverso do que está no Processo (responsible_id).
-    // Se você tem um campo 'administrator_id' na tabela 'contacts' referenciando outro contato:
+    // Relacionamento com o contato administrador (se for um contato)
     public function administrator(): BelongsTo
     {
-        return $this->belongsTo(Contact::class, 'administrator_id'); // Um contato pode ser administrado por outro contato
+        return $this->belongsTo(Contact::class, 'administrator_id');
     }
 
-    // Se este contato (Pessoa Física) é o administrador de outros contatos (Pessoas Jurídicas)
-    public function administeredContacts(): HasMany
+    // NOVO: Tarefas diretamente associadas a este contato
+    public function tasks(): HasMany
     {
-        return $this->hasMany(Contact::class, 'administrator_id', 'id');
+        return $this->hasMany(Task::class, 'contact_id');
     }
 
-    // Accessor para nome de exibição (útil no frontend)
+    // Accessor para o nome de exibição
     public function getDisplayNameAttribute(): string
     {
-        if ($this->type === 'physical') {
-            return $this->name ?? 'N/A';
-        }
-        return $this->business_name ?: $this->name ?? 'N/A';
+        return $this->name ?: $this->business_name ?: 'N/A';
     }
 
+    // Accessor para o label do gênero
     public function getGenderLabelAttribute(): string
     {
         try {
@@ -109,6 +105,7 @@ class Contact extends Model
         }
     }
 
+    // Accessor para o label do estado civil
     public function getMaritalStatusLabelAttribute(): string
     {
         if (is_null($this->marital_status)) {
@@ -123,5 +120,12 @@ class Contact extends Model
             return 'Desconhecido';
         }
     }
+
+    // Se este contato (Pessoa Física) é o administrador de outros contatos (Pessoas Jurídicas)
+    public function administeredContacts(): HasMany
+    {
+        return $this->hasMany(Contact::class, 'administrator_id', 'id');
+    }
+
     protected $appends = ['gender_label', 'marital_status_label'];
 }

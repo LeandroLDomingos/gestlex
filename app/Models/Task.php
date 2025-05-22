@@ -7,12 +7,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-// use Illuminate\Database\Eloquent\SoftDeletes; // 1. Remover ou comentar esta linha
 use Carbon\Carbon;
 
 class Task extends Model
 {
-    use HasFactory, HasUuids; // 2. Remover SoftDeletes daqui
+    use HasFactory, HasUuids; // SoftDeletes foi removido anteriormente
 
     public const STATUS_PENDING = 'Pendente';
     public const STATUS_IN_PROGRESS = 'Em Andamento';
@@ -39,6 +38,7 @@ class Task extends Model
 
     protected $fillable = [
         'process_id',
+        'contact_id',
         'title',
         'description',
         'due_date',
@@ -51,26 +51,23 @@ class Task extends Model
     protected $casts = [
         'due_date' => 'date:Y-m-d',
         'completed_at' => 'datetime',
-        // 'id' => 'string', // UUIDs são strings, mas o Eloquent geralmente lida bem sem cast explícito
     ];
 
-    /**
-     * Get the columns that should receive a unique identifier.
-     *
-     * @return array<int, string>
-     */
     public function uniqueIds(): array
     {
-        return ['id']; // Garante que a coluna 'id' use UUIDs
+        return ['id'];
     }
 
-    // Relacionamento com o Processo ao qual a tarefa pertence
     public function process(): BelongsTo
     {
-        return $this->belongsTo(Process::class);
+        return $this->belongsTo(Process::class, 'process_id');
     }
 
-    // Relacionamento com o Usuário responsável principal pela tarefa
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'contact_id');
+    }
+
     public function responsibleUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'responsible_user_id');
@@ -79,34 +76,32 @@ class Task extends Model
     // Relacionamento Muitos-para-Muitos com Usuários (múltiplos responsáveis)
     public function responsibles(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'task_user', 'task_id', 'user_id')->withTimestamps();
+        // CORRIGIDO: Usar o nome da tabela pivot correto 'task_responsibles'
+        return $this->belongsToMany(User::class, 'task_responsibles', 'task_id', 'user_id')->withTimestamps();
     }
 
-    // Relacionamento Muitos-para-Muitos com Contatos
-    public function contacts(): BelongsToMany
+    public function associatedContacts(): BelongsToMany
     {
+        // O nome da tabela pivot para contatos associados à tarefa é 'task_contact'
+        // conforme a migration 2025_03_25_185653_task_contacts.php
         return $this->belongsToMany(Contact::class, 'task_contact', 'task_id', 'contact_id')->withTimestamps();
     }
 
-    // Accessor para o label do status
     public function getStatusLabelAttribute(): string
     {
         return self::STATUSES[$this->status] ?? $this->status;
     }
 
-    // Accessor para o label da prioridade
     public function getPriorityLabelAttribute(): string
     {
         return self::PRIORITIES[$this->priority] ?? $this->priority;
     }
 
-    // Verifica se a tarefa está atrasada
     public function getIsOverdueAttribute(): bool
     {
         if (!$this->due_date) {
             return false;
         }
-        // Garante que due_date seja um objeto Carbon para comparação segura
         $dueDate = $this->due_date instanceof Carbon ? $this->due_date : Carbon::parse($this->due_date);
         return !$this->completed_at && $dueDate->isPast();
     }

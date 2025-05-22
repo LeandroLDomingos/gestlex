@@ -2,26 +2,9 @@
 
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
-// Se você decidir usar controllers dedicados para sub-recursos, importe-os aqui:
-// use App\Http\Controllers\ContactAnnotationController;
-// use App\Http\Controllers\ContactDocumentController;
-// use App\Http\Controllers\ProcessAnnotationController;
-// use App\Http\Controllers\ProcessDocumentController;
-// use App\Http\Controllers\TaskController;
-
+use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-
-/*
-|--------------------------------------------------------------------------
-| Web Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
-|
-*/
 
 Route::get('/', function () {
     return Inertia::render('Welcome');
@@ -35,6 +18,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Rotas para Contatos
     Route::resource('contacts', ContactController::class);
+
+    // Rotas para Tarefas
+    Route::resource('tasks', TaskController::class);
+
+    Route::post('/tasks/store', [TaskController::class, 'store'])->name('tasks.store.general'); // Rota geral para criar tarefa
+
+    Route::post('/contacts/{contact}/tasks', [TaskController::class, 'store'])->name('contacts.tasks.store');
 
     // Anotações de Contato (assumindo que estão no ContactController)
     Route::post('/contacts/{contact}/annotations', [ContactController::class, 'storeAnnotation'])
@@ -50,12 +40,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Rotas para Processos (Casos)
     Route::resource('processes', ProcessController::class);
-
-    // Rota para criar um processo a partir de um contato específico (se o método createProcess estiver no ContactController)
-    // Se o método create do ProcessController já lida com contact_id opcional via query,
-    // a rota de resource 'processes.create' já é suficiente.
-    // Exemplo, se o método estiver no ContactController:
-    // Route::get('/contacts/{contact}/processes/create', [ContactController::class, 'createProcess'])->name('contacts.processes.create');
 
     // Rotas específicas para atualizar partes de um Processo
     Route::patch('/processes/{process}/update-stage', [ProcessController::class, 'updateStage'])->name('processes.updateStage');
