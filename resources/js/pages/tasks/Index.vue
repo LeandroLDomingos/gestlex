@@ -427,9 +427,9 @@ onMounted(() => {
                                             </span>
                                             <span v-if="task.is_overdue && task.status !== 'Concluída'" class="ml-1 text-red-500 font-semibold">(Atrasada)</span>
                                         </div>
-                                        <div v-if="task.responsibleUser" class="flex items-center" :title="`Responsável: ${task.responsibleUser.name}`">
+                                        <div v-if="task.responsible_user" class="flex items-center" :title="`Responsável: ${task.responsible_user.name}`">
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                                            <span class="truncate">{{ task.responsibleUser.name }}</span>
+                                            <span class="truncate">{{ task.responsible_user.name }}</span>
                                         </div>
                                          <div v-else-if="task.responsibles && task.responsibles.length > 0" class="flex items-center" :title="`Responsáveis: ${task.responsibles.map(r => r.name).join(', ')}`">
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
