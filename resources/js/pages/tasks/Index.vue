@@ -14,7 +14,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { AlertTriangle, CalendarDays, CheckCircle2, User, Briefcase, LinkIcon, GripVertical, PlusCircle, Trash2, Edit2, Filter as FilterIcon, SlidersHorizontal, X } from 'lucide-vue-next';
 import draggable from 'vuedraggable';
 
-// Importar tipos (certifique-se que estão corretos e completos em @/types)
 import type { Task, User as TaskUser, Process as TaskProcess, Contact as TaskContactType, BreadcrumbItem, TaskStatus, TaskPriority } from '@/types';
 
 interface KanbanColumn {
@@ -74,6 +73,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Quadro de Tarefas', href: route('tasks.index') },
 ];
 
+// --- Formulário de Nova Tarefa ---
 const showNewTaskDialog = ref(false);
 const taskForm = useForm({
     title: '',
@@ -87,6 +87,24 @@ const taskForm = useForm({
     contact_id: null as (string | number | null),
     link_type: 'none' as 'none' | 'process' | 'contact',
 });
+
+// --- Formulário de Edição de Tarefa ---
+const showEditTaskDialog = ref(false);
+const taskToEdit = ref<Task | null>(null);
+const editTaskForm = useForm({
+    id: '' as string | number, // Guardar o ID da tarefa a ser editada
+    title: '',
+    description: '',
+    due_date: null as string | null,
+    priority: 'Média' as TaskPriority,
+    status: 'Pendente' as TaskStatus,
+    responsible_user_id: null as (string | number | null),
+    responsible_ids: [] as (string | number)[],
+    process_id: null as (string | number | null),
+    contact_id: null as (string | number | null),
+    link_type: 'none' as 'none' | 'process' | 'contact',
+});
+
 
 const localKanbanColumns = ref<KanbanColumn[]>([]);
 
@@ -104,11 +122,13 @@ function updateLocalKanbanColumns(tasksFromProps: Task[]) {
     
     (tasksFromProps || []).forEach(task => {
         if (task.status && !newColumns.find(col => col.id === task.status)) {
-            newColumns.push({
-                id: task.status,
-                title: props.taskStatuses[task.status] || task.status,
-                tasks: [],
-            });
+            if(!preferredStatusOrder.includes(task.status)){
+                 newColumns.push({
+                    id: task.status,
+                    title: props.taskStatuses[task.status] || task.status,
+                    tasks: [],
+                });
+            }
         }
     });
     
@@ -168,6 +188,70 @@ function submitNewTask() {
     });
 }
 
+function openEditTaskDialog(task: Task) {
+    taskToEdit.value = task; // Guarda a tarefa original para referência, se necessário
+    editTaskForm.id = task.id;
+    editTaskForm.title = task.title;
+    editTaskForm.description = task.description || '';
+    editTaskForm.due_date = task.due_date || null;
+    editTaskForm.priority = task.priority;
+    editTaskForm.status = task.status;
+    editTaskForm.responsible_user_id = task.responsible_user_id || null;
+    editTaskForm.responsible_ids = task.responsibles ? task.responsibles.map(u => u.id) : [];
+    
+    if (task.process_id) {
+        editTaskForm.link_type = 'process';
+        editTaskForm.process_id = task.process_id;
+        editTaskForm.contact_id = null;
+    } else if (task.contact_id) {
+        editTaskForm.link_type = 'contact';
+        editTaskForm.contact_id = task.contact_id;
+        editTaskForm.process_id = null;
+    } else {
+        editTaskForm.link_type = 'none';
+        editTaskForm.process_id = null;
+        editTaskForm.contact_id = null;
+    }
+    
+    editTaskForm.clearErrors(); // Limpa erros de validação anteriores
+    showEditTaskDialog.value = true;
+}
+
+function submitEditTask() {
+    if (!taskToEdit.value) return;
+
+    editTaskForm.transform((data) => {
+        const payload: Record<string, any> = {
+            title: data.title,
+            description: data.description,
+            due_date: data.due_date,
+            priority: data.priority,
+            status: data.status,
+            responsible_user_id: data.responsible_user_id,
+            responsible_ids: data.responsible_ids,
+            process_id: data.link_type === 'process' ? data.process_id : null,
+            contact_id: data.link_type === 'contact' ? data.contact_id : null,
+        };
+        // Não enviar link_type para o backend
+        return payload;
+    }).put(route('tasks.update', editTaskForm.id), { // Usa o ID guardado no form
+        preserveScroll: true,
+        onSuccess: () => {
+            showEditTaskDialog.value = false;
+            editTaskForm.reset();
+            taskToEdit.value = null;
+            // A prop 'tasks' deve ser recarregada pelo Inertia, acionando o watch
+        },
+        onError: (errors) => {
+            console.error("Erro ao atualizar tarefa:", errors);
+        },
+        onFinish: () => {
+            editTaskForm.transform(data => data); // Reseta a transformação
+        }
+    });
+}
+
+
 function onDragEnd(event: any) {
     const { item, to } = event;
     const taskId = item.dataset.taskId;
@@ -183,17 +267,15 @@ function onDragEnd(event: any) {
 function updateTaskStatusOnBackend(task: Task, newStatus: TaskStatus) {
     router.put(route('tasks.update', task.id), {
         status: newStatus,
+        // Enviar apenas o status para esta atualização específica de drag-and-drop
+        // Se quiser enviar outros campos, eles devem ser incluídos aqui.
+        // Para manter simples, o TaskController@update deve tratar `sometimes` para outros campos.
     }, {
         preserveScroll: true,
         preserveState: (page) => Object.keys(page.props.errors).length > 0,
-        onSuccess: () => {
-             // A prop 'tasks' será atualizada pelo Inertia, e o watch atualizará localKanbanColumns.
-             // Se a atualização otimista do vuedraggable for suficiente, não é preciso recarregar.
-             // Se precisar forçar, pode usar: router.reload({ only: ['tasks'] });
-        },
+        onSuccess: () => {},
         onError: (errors) => {
             console.error(`Erro ao atualizar status da tarefa ${task.id}:`, errors);
-            // Forçar recarga para reverter a mudança visual se a atualização falhar
             router.reload({ only: ['tasks'], preserveScroll: true });
         }
     });
@@ -402,7 +484,7 @@ onMounted(() => {
                         :animation="150"
                         handle=".drag-handle"
                     >
-                    <template #item="{element: task}">
+                        <template #item="{element: task}">
                              <Card :key="task.id" 
                                   class="bg-white dark:bg-gray-700 hover:shadow-lg transition-shadow duration-150 ease-in-out group"
                                   :data-task-id="task.id">
@@ -427,9 +509,9 @@ onMounted(() => {
                                             </span>
                                             <span v-if="task.is_overdue && task.status !== 'Concluída'" class="ml-1 text-red-500 font-semibold">(Atrasada)</span>
                                         </div>
-                                        <div v-if="task.responsible_user" class="flex items-center" :title="`Responsável: ${task.responsible_user.name}`">
+                                        <div v-if="task.responsibleUser" class="flex items-center" :title="`Responsável: ${task.responsibleUser.name}`">
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                                            <span class="truncate">{{ task.responsible_user.name }}</span>
+                                            <span class="truncate">{{ task.responsibleUser.name }}</span>
                                         </div>
                                          <div v-else-if="task.responsibles && task.responsibles.length > 0" class="flex items-center" :title="`Responsáveis: ${task.responsibles.map(r => r.name).join(', ')}`">
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
@@ -449,10 +531,10 @@ onMounted(() => {
                                         </div>
                                     </div>
                                     <div class="mt-2 flex justify-end space-x-1">
-                                        <Button @click="() => { /* TODO: openEditTaskDialog(task) */ alert('Editar Tarefa ' + task.id) }" variant="ghost" size="icon" class="h-7 w-7">
+                                        <Button @click="openEditTaskDialog(task)" variant="ghost" size="icon" class="h-7 w-7" title="Editar Tarefa">
                                             <Edit2 class="h-3.5 w-3.5 text-gray-500 hover:text-blue-600" />
                                         </Button>
-                                        <Button @click="openDeleteTaskDialog(task)" variant="ghost" size="icon" class="h-7 w-7">
+                                        <Button @click="openDeleteTaskDialog(task)" variant="ghost" size="icon" class="h-7 w-7" title="Excluir Tarefa">
                                             <Trash2 class="h-3.5 w-3.5 text-gray-500 hover:text-red-600" />
                                         </Button>
                                     </div>
@@ -475,26 +557,26 @@ onMounted(() => {
                 </DialogHeader>
                 <form @submit.prevent="submitNewTask" class="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
                     <div>
-                        <Label for="taskTitle" class="text-sm">Título <span class="text-red-500">*</span></Label>
-                        <Input id="taskTitle" v-model="taskForm.title" required />
+                        <Label for="newTaskTitle" class="text-sm">Título <span class="text-red-500">*</span></Label>
+                        <Input id="newTaskTitle" v-model="taskForm.title" required />
                         <div v-if="taskForm.errors.title" class="text-xs text-red-500 mt-1">{{ taskForm.errors.title }}</div>
                     </div>
                     <div>
-                        <Label for="taskDescription" class="text-sm">Descrição</Label>
-                        <Textarea id="taskDescription" v-model="taskForm.description" rows="3" />
+                        <Label for="newTaskDescription" class="text-sm">Descrição</Label>
+                        <Textarea id="newTaskDescription" v-model="taskForm.description" rows="3" />
                          <div v-if="taskForm.errors.description" class="text-xs text-red-500 mt-1">{{ taskForm.errors.description }}</div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <Label for="taskDueDate" class="text-sm">Prazo</Label>
-                            <Input id="taskDueDate" type="date" v-model="taskForm.due_date" />
+                            <Label for="newTaskDueDate" class="text-sm">Prazo</Label>
+                            <Input id="newTaskDueDate" type="date" v-model="taskForm.due_date" />
                             <div v-if="taskForm.errors.due_date" class="text-xs text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
                         </div>
                         <div>
-                            <Label for="taskPriority" class="text-sm">Prioridade <span class="text-red-500">*</span></Label>
+                            <Label for="newTaskPriority" class="text-sm">Prioridade <span class="text-red-500">*</span></Label>
                             <Select v-model="taskForm.priority" required>
-                                <SelectTrigger id="taskPriority"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                <SelectTrigger id="newTaskPriority"><SelectValue placeholder="Selecione" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
                                 </SelectContent>
@@ -503,9 +585,9 @@ onMounted(() => {
                         </div>
                     </div>
                      <div>
-                        <Label for="taskStatus" class="text-sm">Status <span class="text-red-500">*</span></Label>
+                        <Label for="newTaskStatus" class="text-sm">Status <span class="text-red-500">*</span></Label>
                         <Select v-model="taskForm.status" required>
-                            <SelectTrigger id="taskStatus"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectTrigger id="newTaskStatus"><SelectValue placeholder="Selecione" /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
                             </SelectContent>
@@ -514,9 +596,9 @@ onMounted(() => {
                     </div>
 
                     <div>
-                        <Label for="taskResponsible" class="text-sm">Responsável Principal</Label>
+                        <Label for="newTaskResponsible" class="text-sm">Responsável Principal</Label>
                         <Select v-model="taskForm.responsible_user_id">
-                            <SelectTrigger id="taskResponsible"><SelectValue placeholder="Ninguém" /></SelectTrigger>
+                            <SelectTrigger id="newTaskResponsible"><SelectValue placeholder="Ninguém" /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem :value="null">Ninguém</SelectItem>
                                 <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
@@ -544,24 +626,24 @@ onMounted(() => {
                     </div>
 
                     <div v-if="taskForm.link_type === 'process'">
-                        <Label for="taskProcess" class="text-sm">Processo/Caso</Label>
+                        <Label for="newTaskProcess" class="text-sm">Processo/Caso</Label>
                         <Select v-model="taskForm.process_id">
-                            <SelectTrigger id="taskProcess"><SelectValue placeholder="Selecione um Processo" /></SelectTrigger>
+                            <SelectTrigger id="newTaskProcess"><SelectValue placeholder="Selecione um Processo" /></SelectTrigger>
                             <SelectContent class="max-h-60">
                                 <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="process_item_option in processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                                <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.process_id" class="text-xs text-red-500 mt-1">{{ taskForm.errors.process_id }}</div>
                     </div>
 
                     <div v-if="taskForm.link_type === 'contact'">
-                        <Label for="taskContact" class="text-sm">Contato</Label>
+                        <Label for="newTaskContact" class="text-sm">Contato</Label>
                         <Select v-model="taskForm.contact_id">
-                            <SelectTrigger id="taskContact"><SelectValue placeholder="Selecione um Contato" /></SelectTrigger>
+                            <SelectTrigger id="newTaskContact"><SelectValue placeholder="Selecione um Contato" /></SelectTrigger>
                             <SelectContent class="max-h-60">
                                 <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="contact_item_option in contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.name || contact_item_option.business_name }}</SelectItem>
+                                <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.contact_id" class="text-xs text-red-500 mt-1">{{ taskForm.errors.contact_id }}</div>
@@ -575,6 +657,114 @@ onMounted(() => {
                         </DialogClose>
                         <Button type="submit" :disabled="taskForm.processing">
                             {{ taskForm.processing ? 'Salvando...' : 'Salvar Tarefa' }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showEditTaskDialog" @update:open="showEditTaskDialog = $event">
+            <DialogContent class="sm:max-w-lg md:max-w-xl">
+                <DialogHeader>
+                    <DialogTitle>Editar Tarefa</DialogTitle>
+                    <DialogDescription>Modifique os detalhes da tarefa abaixo.</DialogDescription>
+                </DialogHeader>
+                <form @submit.prevent="submitEditTask" class="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
+                    <div>
+                        <Label for="editTaskTitle" class="text-sm">Título <span class="text-red-500">*</span></Label>
+                        <Input id="editTaskTitle" v-model="editTaskForm.title" required />
+                        <div v-if="editTaskForm.errors.title" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.title }}</div>
+                    </div>
+                    <div>
+                        <Label for="editTaskDescription" class="text-sm">Descrição</Label>
+                        <Textarea id="editTaskDescription" v-model="editTaskForm.description" rows="3" />
+                        <div v-if="editTaskForm.errors.description" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.description }}</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="editTaskDueDate" class="text-sm">Prazo</Label>
+                            <Input id="editTaskDueDate" type="date" v-model="editTaskForm.due_date" />
+                            <div v-if="editTaskForm.errors.due_date" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.due_date }}</div>
+                        </div>
+                        <div>
+                            <Label for="editTaskPriority" class="text-sm">Prioridade <span class="text-red-500">*</span></Label>
+                            <Select v-model="editTaskForm.priority" required>
+                                <SelectTrigger id="editTaskPriority"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <div v-if="editTaskForm.errors.priority" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.priority }}</div>
+                        </div>
+                    </div>
+                    <div>
+                        <Label for="editTaskStatus" class="text-sm">Status <span class="text-red-500">*</span></Label>
+                        <Select v-model="editTaskForm.status" required>
+                            <SelectTrigger id="editTaskStatus"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="editTaskForm.errors.status" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.status }}</div>
+                    </div>
+                    <div>
+                        <Label for="editTaskResponsible" class="text-sm">Responsável Principal</Label>
+                        <Select v-model="editTaskForm.responsible_user_id">
+                            <SelectTrigger id="editTaskResponsible"><SelectValue placeholder="Ninguém" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem :value="null">Ninguém</SelectItem>
+                                <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                         <div v-if="editTaskForm.errors.responsible_user_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.responsible_user_id }}</div>
+                    </div>
+                     <div>
+                        <Label class="text-sm">Vincular a:</Label>
+                        <div class="mt-1 flex space-x-4">
+                            <label class="flex items-center">
+                                <input type="radio" v-model="editTaskForm.link_type" value="none" name="editLinkTypeOption" class="form-radio"/>
+                                <span class="ml-2 text-sm">Nenhum</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" v-model="editTaskForm.link_type" value="process" name="editLinkTypeOption" class="form-radio"/>
+                                <span class="ml-2 text-sm">Processo/Caso</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" v-model="editTaskForm.link_type" value="contact" name="editLinkTypeOption" class="form-radio"/>
+                                <span class="ml-2 text-sm">Contato</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div v-if="editTaskForm.link_type === 'process'">
+                        <Label for="editTaskProcess" class="text-sm">Processo/Caso</Label>
+                        <Select v-model="editTaskForm.process_id">
+                            <SelectTrigger id="editTaskProcess"><SelectValue placeholder="Selecione um Processo" /></SelectTrigger>
+                            <SelectContent class="max-h-60">
+                                <SelectItem :value="null">Nenhum</SelectItem>
+                                <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="editTaskForm.errors.process_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.process_id }}</div>
+                    </div>
+                    <div v-if="editTaskForm.link_type === 'contact'">
+                        <Label for="editTaskContact" class="text-sm">Contato</Label>
+                        <Select v-model="editTaskForm.contact_id">
+                            <SelectTrigger id="editTaskContact"><SelectValue placeholder="Selecione um Contato" /></SelectTrigger>
+                            <SelectContent class="max-h-60">
+                                <SelectItem :value="null">Nenhum</SelectItem>
+                                <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="editTaskForm.errors.contact_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.contact_id }}</div>
+                    </div>
+                     <div v-if="editTaskForm.errors.general" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.general }}</div>
+
+                    <DialogFooter class="pt-4">
+                        <DialogClose as-child>
+                            <Button type="button" variant="outline" @click="showEditTaskDialog = false; editTaskForm.reset(); editTaskForm.clearErrors(); taskToEdit = null;">Cancelar</Button>
+                        </DialogClose>
+                        <Button type="submit" :disabled="editTaskForm.processing">
+                            {{ editTaskForm.processing ? 'Salvando...' : 'Salvar Alterações' }}
                         </Button>
                     </DialogFooter>
                 </form>

@@ -175,7 +175,7 @@ class TaskController extends Controller
                 if ($task->process_id) {
                     return redirect()->route('processes.show', $task->process_id)->with('success', 'Tarefa adicionada com sucesso!');
                 } elseif ($task->contact_id) {
-                    return redirect()->route('contacts.show', $task->contact_id)->with('success', 'Tarefa adicionada com sucesso!');
+                   return redirect()->route('tasks.index')->with('success', 'Tarefa criada com sucesso!');
                 }
                 return redirect()->route('tasks.index')->with('success', 'Tarefa criada com sucesso!');
             }

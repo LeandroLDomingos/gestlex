@@ -90,6 +90,27 @@ class Process extends Model
         return $this->hasMany(Task::class, 'process_id', 'id')->orderBy('due_datetime', 'asc')->orderBy('created_at', 'asc');
     }
 
+    // Accessor para calcular o saldo do caso (honorários recebidos - despesas do caso)
+    public function getCaseBalanceAttribute(): float
+    {
+        $income = $this->financialTransactions()->where('type', 'income')->sum('amount');
+        $expenses = $this->financialTransactions()->where('type', 'expense')->sum('amount'); // amount já é negativo para despesas
+        return (float) ($income + $expenses); // Soma, pois despesas são negativas
+    }
+
+    // Accessor para o total de receitas do caso
+    public function getTotalIncomeAttribute(): float
+    {
+        return (float) $this->financialTransactions()->where('type', 'income')->sum('amount');
+    }
+
+    // Accessor para o total de despesas do caso
+    public function getTotalExpensesAttribute(): float
+    {
+        // Retorna o valor absoluto das despesas, pois elas são armazenadas como negativas
+        return (float) abs($this->financialTransactions()->where('type', 'expense')->sum('amount'));
+    }
+
     // Constantes para Workflows
     public const WORKFLOW_PROSPECTING = 'prospecting';
     public const WORKFLOW_CONSULTATIVE = 'consultative';

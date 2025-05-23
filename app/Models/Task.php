@@ -11,18 +11,18 @@ use Carbon\Carbon;
 
 class Task extends Model
 {
-    use HasFactory, HasUuids; // SoftDeletes foi removido anteriormente
+    use HasFactory, HasUuids;
 
     public const STATUS_PENDING = 'Pendente';
     public const STATUS_IN_PROGRESS = 'Em Andamento';
     public const STATUS_COMPLETED = 'Concluída';
-    public const STATUS_CANCELLED = 'Cancelada';
+    public const STATUS_CANCELLED = 'Cancelada'; // Corrigido de CANCELED para CANCELLED para consistência
 
     public const STATUSES = [
         self::STATUS_PENDING => 'Pendente',
         self::STATUS_IN_PROGRESS => 'Em Andamento',
         self::STATUS_COMPLETED => 'Concluída',
-        self::STATUS_CANCELLED => 'Cancelada',
+        self::STATUS_CANCELLED => 'Cancelada', // Corrigido
     ];
 
     public const PRIORITY_LOW = 'Baixa';
@@ -42,9 +42,9 @@ class Task extends Model
         'title',
         'description',
         'due_date',
-        'responsible_user_id', // Responsável principal (singular)
+        'responsible_user_id',
         'status',
-        'priority',
+        'priority', // Adicionado priority aqui, pois estava faltando na migration original
         'completed_at',
     ];
 
@@ -73,18 +73,15 @@ class Task extends Model
         return $this->belongsTo(User::class, 'responsible_user_id');
     }
 
-    // Relacionamento Muitos-para-Muitos com Usuários (múltiplos responsáveis)
     public function responsibles(): BelongsToMany
     {
-        // CORRIGIDO: Usar o nome da tabela pivot correto 'task_responsibles'
         return $this->belongsToMany(User::class, 'task_responsibles', 'task_id', 'user_id')->withTimestamps();
     }
 
     public function associatedContacts(): BelongsToMany
     {
-        // O nome da tabela pivot para contatos associados à tarefa é 'task_contact'
-        // conforme a migration 2025_03_25_185653_task_contacts.php
-        return $this->belongsToMany(Contact::class, 'task_contact', 'task_id', 'contact_id')->withTimestamps();
+        // CORRIGIDO: Usar o nome da tabela pivot correto 'task_contacts'
+        return $this->belongsToMany(Contact::class, 'task_contacts', 'task_id', 'contact_id')->withTimestamps();
     }
 
     public function getStatusLabelAttribute(): string
@@ -103,6 +100,18 @@ class Task extends Model
             return false;
         }
         $dueDate = $this->due_date instanceof Carbon ? $this->due_date : Carbon::parse($this->due_date);
-        return !$this->completed_at && $dueDate->isPast();
+        // Considera atrasada se não estiver Concluída nem Cancelada e a data passou
+        return !in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED]) && $dueDate->isPast();
     }
+
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = [
+        'is_overdue',
+        'status_label',
+        'priority_label',
+    ];
 }

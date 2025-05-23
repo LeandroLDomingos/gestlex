@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\TaskController;
@@ -72,6 +73,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('processes.tasks.destroy');
     Route::get('/processos/{process}/documentos/{document}/download', [ProcessController::class, 'documentDownload'])
         ->name('process-documents.download');
+
+    // Finanças Gerais
+    Route::resource('financial-transactions', FinancialTransactionController::class)
+        ->names('financial-transactions');
 
     // Rotas de Configurações (se o arquivo settings.php for para isso)
     // require __DIR__ . '/settings.php';
