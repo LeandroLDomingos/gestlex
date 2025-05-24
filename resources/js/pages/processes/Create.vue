@@ -44,14 +44,15 @@ interface ContactSelectItem {
     type: 'physical' | 'legal';
 }
 
-// Props esperadas do controller
+// --- ALTERAÇÃO 1: Atualizar Props ---
 const props = defineProps<{
     contact_id?: number | string | null;
     contact_name?: string | null;
     users?: UserSelectItem[];
     contactsList?: ContactSelectItem[];
-    availableWorkflows?: WorkflowOption[]; // Workflows formatados
-    allStages?: Record<string, StageOption[]>; // Todos os estágios agrupados por workflow key
+    availableWorkflows?: WorkflowOption[];
+    allStages?: Record<string, StageOption[]>;
+    paymentMethods?: string[]; // Adicionado para receber os métodos de pagamento
     errors?: Record<string, string>;
 }>();
 
@@ -76,17 +77,26 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
     return url;
 };
 
+// --- ALTERAÇÃO 2: Modificar useForm ---
 const form = useForm({
     title: '',
     description: '',
     contact_id: props.contact_id || null,
-    responsible_id: null as (number | string | null), // Corrigido para responsible_id
-    workflow: null as (string | null), // Armazena a CHAVE do workflow (ex: 'prospecting')
-    stage: null as (number | null), // Armazena a CHAVE do estágio (inteiro)
-    due_date: '',
+    responsible_id: null as (number | string | null),
+    workflow: null as (string | null),
+    stage: null as (number | null),
+    due_date: '', // Data de vencimento do CASO
     priority: 'medium',
     origin: '',
-    negotiated_value: null as (number | null),
+    // negotiated_value: null as (number | null), // Removido
+
+    // Adicionado objeto de pagamento
+    payment: {
+        amount: null as (number | null),
+        method: null as (string | null),
+        date: '', // Data do pagamento
+        notes: '', // Observações sobre o pagamento
+    },
     // status: 'Aberto', // Status inicial pode ser definido aqui ou no backend
 });
 
@@ -111,7 +121,6 @@ function getContactDisplayForSelect(contact: ContactSelectItem): string {
     if (contact.type === 'physical') {
         return contact.name || 'N/A';
     }
-    // Para PJ, pode ser útil mostrar Nome Fantasia e Razão Social se diferentes
     let displayName = contact.name || 'Empresa sem Nome Fantasia';
     if (contact.business_name && contact.business_name !== contact.name) {
         displayName += ` (${contact.business_name})`;
@@ -121,7 +130,6 @@ function getContactDisplayForSelect(contact: ContactSelectItem): string {
 
 const usersToSelect = computed(() => props.users || []);
 
-// Estágios disponíveis baseados no workflow selecionado
 const currentStages = computed<StageOption[]>(() => {
     if (form.workflow && props.allStages && props.allStages[form.workflow]) {
         return props.allStages[form.workflow];
@@ -129,37 +137,27 @@ const currentStages = computed<StageOption[]>(() => {
     return [];
 });
 
-// Observa mudanças no workflow para resetar o estágio
 watch(() => form.workflow, (newWorkflowSelected, oldWorkflowSelected) => {
-    // Só reseta se o workflow realmente mudou para um valor diferente (ou de/para null)
     if (newWorkflowSelected !== oldWorkflowSelected) {
         form.stage = null;
-        form.clearErrors('stage'); // Limpa erros do estágio anterior
+        form.clearErrors('stage');
     }
-    // Opcional: auto-selecionar o primeiro estágio se houver estágios para o novo workflow
-    // if (newWorkflowSelected && currentStages.value.length > 0) {
-    //     form.stage = currentStages.value[0].key;
-    // }
 });
-
 
 function submitProcess() {
     const dataToSubmit = {
         ...form.data(),
-        responsible_id: form.responsible_id === 'null' ? null : form.responsible_id, // Trata o valor 'null' do select
-        // Garante que contact_id seja enviado como null se não selecionado
+        responsible_id: form.responsible_id === 'null' ? null : form.responsible_id,
         contact_id: form.contact_id === 'null' || form.contact_id === '' ? null : form.contact_id,
     };
 
     form.transform(() => dataToSubmit)
         .post(routeHelper('processes.store'), {
         onSuccess: () => {
-            // O backend deve redirecionar, o Inertia tratará a atualização da página.
-            // Ex: return redirect()->route('processes.show', $process->id)->with('success', 'Caso criado!');
+            // O backend deve redirecionar
         },
         onError: (formErrors) => {
             console.error('Erro ao criar caso:', formErrors);
-            // Os erros de validação serão automaticamente populados em form.errors
         }
     });
 }
@@ -196,20 +194,21 @@ function submitProcess() {
 
             <div>
               <Label for="contact_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Contato Principal <span class="text-red-500">*</span></Label>
-              <Select v-model="form.contact_id" :disabled="!!props.contact_id" required> <SelectTrigger id="contact_id" class="mt-1 w-full">
-                    <SelectValue placeholder="Selecione um contato" />
-                  </SelectTrigger>
-                  <SelectContent>
-                     <SelectItem v-if="!props.contactsList || props.contactsList.length === 0" value="null" disabled>
-                        Nenhum contato disponível
+              <Select v-model="form.contact_id" :disabled="!!props.contact_id" required>
+                <SelectTrigger id="contact_id" class="mt-1 w-full">
+                  <SelectValue placeholder="Selecione um contato" />
+                </SelectTrigger>
+                <SelectContent>
+                   <SelectItem v-if="!props.contactsList || props.contactsList.length === 0" value="null" disabled>
+                    Nenhum contato disponível
+                  </SelectItem>
+                  <template v-else>
+                    <SelectItem v-for="contact in props.contactsList" :key="contact.id" :value="String(contact.id)">
+                      {{ getContactDisplayForSelect(contact) }}
                     </SelectItem>
-                    <template v-else>
-                        <SelectItem v-for="contact in props.contactsList" :key="contact.id" :value="String(contact.id)">
-                        {{ getContactDisplayForSelect(contact) }}
-                        </SelectItem>
-                    </template>
-                  </SelectContent>
-                </Select>
+                  </template>
+                </SelectContent>
+              </Select>
               <div v-if="form.errors.contact_id" class="text-sm text-red-600 dark:text-red-400 mt-1">
                 {{ form.errors.contact_id }}
               </div>
@@ -233,19 +232,19 @@ function submitProcess() {
               <div>
                 <Label for="workflow" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Workflow <span class="text-red-500">*</span></Label>
                 <Select v-model="form.workflow" required>
-                    <SelectTrigger id="workflow" class="mt-1 w-full">
-                        <SelectValue placeholder="Selecione um workflow" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem v-if="!props.availableWorkflows || props.availableWorkflows.length === 0" value="null" disabled>
-                            Nenhum workflow disponível
+                  <SelectTrigger id="workflow" class="mt-1 w-full">
+                    <SelectValue placeholder="Selecione um workflow" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-if="!props.availableWorkflows || props.availableWorkflows.length === 0" value="null" disabled>
+                        Nenhum workflow disponível
+                    </SelectItem>
+                    <template v-else>
+                        <SelectItem v-for="wf in props.availableWorkflows" :key="wf.key" :value="wf.key">
+                            {{ wf.label }}
                         </SelectItem>
-                        <template v-else>
-                            <SelectItem v-for="wf in props.availableWorkflows" :key="wf.key" :value="wf.key">
-                                {{ wf.label }}
-                            </SelectItem>
-                        </template>
-                    </SelectContent>
+                    </template>
+                  </SelectContent>
                 </Select>
                 <div v-if="form.errors.workflow" class="text-sm text-red-600 dark:text-red-400 mt-1">
                   {{ form.errors.workflow }}
@@ -255,21 +254,21 @@ function submitProcess() {
               <div>
                 <Label for="stage" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Estágio <span class="text-red-500">*</span></Label>
                 <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0" required>
-                    <SelectTrigger id="stage" class="mt-1 w-full">
-                        <SelectValue placeholder="Selecione um estágio" />
-                    </SelectTrigger>
-                    <SelectContent>
-                         <SelectItem v-if="!form.workflow" value="null" disabled>
-                            Selecione um workflow primeiro
+                  <SelectTrigger id="stage" class="mt-1 w-full">
+                    <SelectValue placeholder="Selecione um estágio" />
+                  </SelectTrigger>
+                  <SelectContent>
+                      <SelectItem v-if="!form.workflow" value="null" disabled>
+                        Selecione um workflow primeiro
+                      </SelectItem>
+                      <SelectItem v-else-if="currentStages.length === 0" value="null" disabled>
+                        Nenhum estágio para este workflow
+                      </SelectItem>
+                      <template v-else>
+                        <SelectItem v-for="st in currentStages" :key="st.key" :value="st.key"> {{ st.label }}
                         </SelectItem>
-                        <SelectItem v-else-if="currentStages.length === 0" value="null" disabled>
-                            Nenhum estágio para este workflow
-                        </SelectItem>
-                        <template v-else>
-                            <SelectItem v-for="st in currentStages" :key="st.key" :value="st.key"> {{ st.label }}
-                            </SelectItem>
-                        </template>
-                    </SelectContent>
+                      </template>
+                  </SelectContent>
                 </Select>
                 <div v-if="form.errors.stage" class="text-sm text-red-600 dark:text-red-400 mt-1">
                   {{ form.errors.stage }}
@@ -280,11 +279,13 @@ function submitProcess() {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div>
                     <Label for="responsible_user_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Responsável</Label>
-                    <Select v-model="form.responsible_id"> <SelectTrigger id="responsible_user_id" class="mt-1 w-full">
+                    <Select v-model="form.responsible_id">
+                        <SelectTrigger id="responsible_user_id" class="mt-1 w-full">
                             <SelectValue placeholder="Selecione um responsável" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="null">Ninguém (Não atribuído)</SelectItem> <SelectItem v-if="!usersToSelect || usersToSelect.length === 0 && !props.users" value="null" disabled>
+                            <SelectItem value="null">Ninguém (Não atribuído)</SelectItem>
+                            <SelectItem v-if="!usersToSelect || usersToSelect.length === 0 && !props.users" value="null" disabled>
                                 Nenhum usuário disponível
                             </SelectItem>
                             <template v-else>
@@ -313,61 +314,115 @@ function submitProcess() {
                 </div>
             </div>
 
+            <fieldset class="border-t border-gray-200 dark:border-gray-700 pt-6 mt-6">
+                <legend class="text-base font-medium text-gray-900 dark:text-gray-100 mb-4">Detalhes do Pagamento (Opcional)</legend>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <Label for="payment_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor do Pagamento (R$)</Label>
+                        <Input
+                            id="payment_amount"
+                            type="number"
+                            step="0.01"
+                            v-model.number="form.payment.amount"
+                            class="mt-1 block w-full"
+                            placeholder="Ex: 1500.50"
+                        />
+                        <div v-if="form.errors['payment.amount']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.amount'] }}
+                        </div>
+                    </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div>
-                    <Label for="negotiated_value" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor Negociado (R$)</Label>
-                    <Input
-                        id="negotiated_value"
-                        type="number"
-                        step="0.01"
-                        v-model.number="form.negotiated_value"
-                        class="mt-1 block w-full"
-                        placeholder="Ex: 1500.50"
-                    />
-                    <div v-if="form.errors.negotiated_value" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                        {{ form.errors.negotiated_value }}
+                    <div>
+                        <Label for="payment_method" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Método de Pagamento</Label>
+                        <Select v-model="form.payment.method">
+                            <SelectTrigger id="payment_method" class="mt-1 w-full">
+                                <SelectValue placeholder="Selecione um método" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="null">Nenhum / Não Especificado</SelectItem>
+                                <SelectItem v-if="!props.paymentMethods || props.paymentMethods.length === 0" value="null" disabled>
+                                    Nenhum método configurado
+                                </SelectItem>
+                                <template v-else>
+                                    <SelectItem v-for="method in props.paymentMethods" :key="method" :value="method">
+                                        {{ method }}
+                                    </SelectItem>
+                                </template>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="form.errors['payment.method']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.method'] }}
+                        </div>
                     </div>
                 </div>
-                <div>
-                    <Label for="due_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Vencimento</Label>
-                    <Input
-                        id="due_date"
-                        type="date"
-                        v-model="form.due_date"
-                        class="mt-1 block w-full"
-                    />
-                    <div v-if="form.errors.due_date" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                        {{ form.errors.due_date }}
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div>
+                        <Label for="payment_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data do Pagamento</Label>
+                        <Input
+                            id="payment_date"
+                            type="date"
+                            v-model="form.payment.date"
+                            class="mt-1 block w-full"
+                        />
+                        <div v-if="form.errors['payment.date']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.date'] }}
+                        </div>
+                    </div>
+                    <div>
+                        <Label for="due_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Vencimento do Caso</Label>
+                        <Input
+                            id="due_date"
+                            type="date"
+                            v-model="form.due_date"
+                            class="mt-1 block w-full"
+                        />
+                        <div v-if="form.errors.due_date" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors.due_date }}
+                        </div>
                     </div>
                 </div>
-            </div>
-             <div>
-                <Label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Prioridade <span class="text-red-500">*</span></Label>
-                <Select v-model="form.priority" required>
-                    <SelectTrigger id="priority" class="mt-1 w-full">
-                        <SelectValue placeholder="Selecione a prioridade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="low">Baixa</SelectItem>
-                        <SelectItem value="medium">Média</SelectItem>
-                        <SelectItem value="high">Alta</SelectItem>
-                    </SelectContent>
-                </Select>
-                <div v-if="form.errors.priority" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                    {{ form.errors.priority }}
+                 <div class="mt-6">
+                    <Label for="payment_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Observações do Pagamento</Label>
+                    <Textarea
+                        id="payment_notes"
+                        v-model="form.payment.notes"
+                        rows="3"
+                        class="mt-1 block w-full"
+                        placeholder="Detalhes adicionais sobre o pagamento, condições, etc."
+                    />
+                    <div v-if="form.errors['payment.notes']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                        {{ form.errors['payment.notes'] }}
+                    </div>
                 </div>
+            </fieldset>
+
+            <div class="mt-6"> 
+              <Label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Prioridade <span class="text-red-500">*</span></Label>
+              <Select v-model="form.priority" required>
+                <SelectTrigger id="priority" class="mt-1 w-full">
+                  <SelectValue placeholder="Selecione a prioridade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Baixa</SelectItem>
+                  <SelectItem value="medium">Média</SelectItem>
+                  <SelectItem value="high">Alta</SelectItem>
+                </SelectContent>
+              </Select>
+              <div v-if="form.errors.priority" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                {{ form.errors.priority }}
+              </div>
             </div>
 
 
-            <div class="flex justify-end space-x-3 pt-4">
+            <div class="flex justify-end space-x-3 pt-8">
               <Link :href="props.contact_id ? routeHelper('contacts.show', props.contact_id) : routeHelper('processes.index')">
                 <Button type="button" variant="outline">Cancelar</Button>
               </Link>
               <Button type="submit" :disabled="form.processing">
                 <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
                 {{ form.processing ? 'Salvando...' : 'Salvar Caso' }}
               </Button>

@@ -31,13 +31,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-    Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2,
+    Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, Link as LinkIcon, // Adicionado LinkIcon
     MessageSquare, History, Briefcase, DollarSign, Users,
     CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3
 } from 'lucide-vue-next';
 
-import type { Process, ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
-// import InputError from '@/Components/InputError.vue';
+import type { ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process'; // Mantido o tipo Process daqui se ele já for global e completo
+// Se o tipo Process de @/types/process não incluir 'payments', precisaremos definir localmente ou ajustá-lo globalmente.
 
 const RGlobal = (window as any).route;
 const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
@@ -60,6 +60,29 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
     return url;
 };
 
+// --- ALTERAÇÃO 1: Interface PaymentData (se não existir globalmente) ---
+interface PaymentData {
+    id: string | number;
+    amount: number | null;
+    payment_method: string | null;
+    payment_date: string | null; // Formato YYYY-MM-DD
+    status: string | null; // Ex: 'pending', 'paid', 'failed'
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+// --- ALTERAÇÃO 2: Ajustar Interface Process (ou usar uma global atualizada) ---
+// Supondo que a prop 'process' agora inclua 'payments' e não mais 'negotiated_value'
+interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value'> { // Reutiliza o tipo global Process, omitindo negotiated_value
+    archived_at?: string | null;
+    documents?: ProcessDocument[];
+    history_entries?: ProcessHistoryEntry[];
+    tasks?: ProcessTask[];
+    payments?: PaymentData[]; // Adiciona a relação de pagamentos
+    // negotiated_value?: number | string | null; // Removido
+}
+
 interface SelectOption {
     key: string;
     label: string;
@@ -71,14 +94,15 @@ interface StageOption {
 }
 
 const props = defineProps<{
-    process: Process & { archived_at?: string | null, documents?: ProcessDocument[], history_entries?: ProcessHistoryEntry[], tasks?: ProcessTask[] };
+    process: ProcessDetails; // Usa a interface ajustada
     availableStages?: StageOption[];
     availablePriorities?: SelectOption[];
     availableStatuses?: SelectOption[];
     users?: UserReference[];
+    // paymentMethods?: string[]; // Não é necessário aqui, a menos que haja um formulário de edição de pagamento nesta tela
 }>();
 
-const activeMainTab = ref<'tasks' | 'documents' | 'history'>('tasks');
+const activeMainTab = ref<'tasks' | 'documents' | 'history' | 'payments'>('tasks'); // Adicionado 'payments' como opção de aba
 const showNewAnnotationForm = ref(false);
 const showDeleteProcessDialog = ref(false);
 const processDeleteForm = useForm({});
@@ -98,11 +122,10 @@ const showDeleteProcessDocumentDialog = ref(false);
 const processDocumentToDelete = ref<ProcessDocument | null>(null);
 const processDocumentDeleteForm = useForm({});
 
-// Estado e Formulário para Tarefas
-const showTaskDialog = ref(false); // Usado para criar e editar
+const showTaskDialog = ref(false);
 const editingTask = ref<ProcessTask | null>(null);
 const taskForm = useForm({
-    id: null as (string | number | null), // Para saber se é edição
+    id: null as (string | number | null),
     title: '',
     description: '',
     due_date: '',
@@ -177,7 +200,7 @@ function openDeleteProcessDialog() { showDeleteProcessDialog.value = true; }
 function submitDeleteProcess() {
     processDeleteForm.delete(routeHelper('processes.destroy', props.process.id), {
         preserveScroll: false,
-        onSuccess: () => showDeleteProcessDialog.value = false,
+        onSuccess: () => showDeleteProcessDialog.value = false, // O redirect do backend deve levar para index
         onError: (errors) => console.error('Erro ao excluir processo:', errors)
     });
 }
@@ -196,18 +219,21 @@ function submitDeleteProcessAnnotation() {
 }
 
 function updateStage(newStageKey: number) {
+    stageUpdateForm.stage = newStageKey; // Garante que o valor do form está atualizado antes do patch
     stageUpdateForm.patch(routeHelper('processes.updateStage', props.process.id), {
         preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => { console.error('Erro ao atualizar estágio:', errors); stageUpdateForm.stage = props.process.stage; alert(errors.stage || 'Erro ao atualizar estágio.'); }
     });
 }
 function updateProcessStatus(newStatusKey: string) {
+    statusUpdateForm.status = newStatusKey;
     statusUpdateForm.patch(routeHelper('processes.updateStatus', props.process.id), {
         preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => { console.error('Erro ao atualizar status:', errors); statusUpdateForm.status = props.process.status; alert(errors.status || 'Erro ao atualizar status.'); }
     });
 }
 function updateProcessPriority(newPriorityKey: string) {
+    priorityUpdateForm.priority = newPriorityKey;
     priorityUpdateForm.patch(routeHelper('processes.updatePriority', props.process.id), {
         preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => { console.error('Erro ao atualizar prioridade:', errors); priorityUpdateForm.priority = props.process.priority; alert(errors.priority || 'Erro ao atualizar prioridade.'); }
@@ -233,11 +259,10 @@ function submitDeleteProcessDocument() {
     });
 }
 
-// Funções para Tarefas
 function openNewTaskModal() {
     editingTask.value = null;
     taskForm.reset();
-    taskForm.status = 'Pendente'; // Status padrão para nova tarefa
+    taskForm.status = 'Pendente';
     taskForm.id = null;
     showTaskDialog.value = true;
 }
@@ -247,7 +272,7 @@ function openEditTaskModal(task: ProcessTask) {
     taskForm.id = task.id;
     taskForm.title = task.title;
     taskForm.description = task.description || '';
-    taskForm.due_date = task.due_date ? task.due_date.substring(0,10) : ''; // Formato YYYY-MM-DD
+    taskForm.due_date = task.due_date ? task.due_date.substring(0,10) : '';
     taskForm.responsible_user_id = task.responsible_user_id ? String(task.responsible_user_id) : null;
     taskForm.status = task.status || 'Pendente';
     showTaskDialog.value = true;
@@ -259,7 +284,7 @@ function submitProcessTask() {
         responsible_user_id: taskForm.responsible_user_id === 'null' ? null : taskForm.responsible_user_id,
     };
 
-    if (editingTask.value) { // Atualizar tarefa existente
+    if (editingTask.value) {
         taskForm.transform(() => dataToSubmit).put(routeHelper('processes.tasks.update', { process: props.process.id, task: editingTask.value!.id }), {
             preserveScroll: true,
             onSuccess: () => {
@@ -270,7 +295,7 @@ function submitProcessTask() {
             },
             onError: (errors) => console.error('Erro ao atualizar tarefa:', errors)
         });
-    } else { // Criar nova tarefa
+    } else {
         taskForm.transform(() => dataToSubmit).post(routeHelper('processes.tasks.store', props.process.id), {
             preserveScroll: true,
             onSuccess: () => {
@@ -301,8 +326,15 @@ function submitDeleteTask() {
     });
 }
 
-
 const isArchived = computed(() => !!props.process.archived_at);
+
+// --- ALTERAÇÃO 3: Computar a soma dos pagamentos (se houver) ---
+const totalPaymentsAmount = computed(() => {
+    if (!props.process.payments || props.process.payments.length === 0) {
+        return null;
+    }
+    return props.process.payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+});
 
 </script>
 
@@ -484,12 +516,12 @@ const isArchived = computed(() => !!props.process.archived_at);
                             </div>
                             <div v-if="process.due_date" class="flex items-center">
                                 <Clock class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                <span class="font-medium mr-1">Vencimento:</span> {{ formatDate(process.due_date) }}
+                                <span class="font-medium mr-1">Vencimento do Caso:</span> {{ formatDate(process.due_date) }}
                             </div>
-                             <div v-if="process.negotiated_value !== null && typeof process.negotiated_value !== 'undefined'" class="flex items-center">
+                            <!-- <div v-if="process.negotiated_value !== null && typeof process.negotiated_value !== 'undefined'" class="flex items-center">
                                 <DollarSign class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Valor:</span> {{ formatCurrency(process.negotiated_value) }}
-                            </div>
+                            </div> -->
                              <div v-if="process.origin" class="flex items-center">
                                 <LinkIcon class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Origem:</span> {{ process.origin }}
@@ -555,6 +587,10 @@ const isArchived = computed(() => !!props.process.archived_at);
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'tasks' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
                             TAREFAS ({{ process.tasks?.length || 0 }})
                         </button>
+                        <button @click="activeMainTab = 'payments'"
+                            :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'payments' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
+                            PAGAMENTOS ({{ process.payments?.length || 0 }})
+                        </button>
                         <button @click="activeMainTab = 'documents'"
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'documents' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
                             DOCUMENTOS ({{ process.documents?.length || 0 }})
@@ -604,6 +640,44 @@ const isArchived = computed(() => !!props.process.archived_at);
                         </div>
                         <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhuma tarefa para este caso.</p>
                     </div>
+
+                    <div v-if="activeMainTab === 'payments'" class="space-y-4 py-4">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Pagamentos Registrados</h3>
+                            <!-- <Button variant="outline" size="sm" @click="openNewPaymentModal" :disabled="isArchived">
+                                <PlusCircle class="h-4 w-4 mr-2" /> Novo Pagamento
+                            </Button> -->
+                            </div>
+                        <div v-if="process.payments && process.payments.length > 0" class="space-y-3">
+                            <Card v-for="payment_item in process.payments" :key="payment_item.id" class="hover:shadow-md transition-shadow">
+                                <CardContent class="p-4">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="text-lg font-semibold text-indigo-600 dark:text-indigo-400">{{ formatCurrency(payment_item.amount) }}</p>
+                                            <p class="text-sm text-gray-700 dark:text-gray-300">Método: {{ payment_item.payment_method || 'N/A' }}</p>
+                                        </div>
+                                        <Badge :variant="payment_item.status === 'paid' ? 'default' : (payment_item.status === 'pending' ? 'secondary' : 'outline')" class="text-xs">
+                                            {{ payment_item.status ? (payment_item.status.charAt(0).toUpperCase() + payment_item.status.slice(1)) : 'N/A' }}
+                                        </Badge>
+                                    </div>
+                                    <Separator class="my-2" />
+                                    <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                        <p v-if="payment_item.payment_date">Data do Pagamento: {{ formatDate(payment_item.payment_date) }}</p>
+                                        <p v-if="payment_item.notes" class="whitespace-pre-wrap">Observações: {{ payment_item.notes }}</p>
+                                        <p>Registrado em: {{ formatDate(payment_item.created_at, true) }}</p>
+                                    </div>
+                                     </CardContent>
+                            </Card>
+                             <Card class="bg-gray-50 dark:bg-gray-700/50 mt-4">
+                                <CardContent class="p-3 text-right">
+                                    <p class="text-sm font-medium text-gray-700 dark:text-gray-200">Total dos Pagamentos:</p>
+                                    <p class="text-xl font-semibold text-indigo-700 dark:text-indigo-400">{{ formatCurrency(totalPaymentsAmount) }}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                        <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum pagamento registrado para este caso.</p>
+                    </div>
+
 
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
                          <div class="flex justify-between items-center">
@@ -706,7 +780,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                             <Card v-for="entry in process.history_entries" :key="entry.id" class="bg-gray-50 dark:bg-gray-800/60">
                                 <CardContent class="p-3 text-xs">
                                    <p><span class="font-semibold">{{ entry.user?.name || entry.user_name || 'Sistema' }}</span> {{ entry.action?.toLowerCase() || 'realizou uma ação' }}: <span class="text-gray-700 dark:text-gray-300">{{ entry.description }}</span></p>
-                                   <p class="text-gray-500 dark:text-gray-400 mt-0.5">{{ formatDate(entry.created_at, true) }}</p>
+                                    <p class="text-gray-500 dark:text-gray-400 mt-0.5">{{ formatDate(entry.created_at, true) }}</p>
                                 </CardContent>
                             </Card>
                         </div>
@@ -722,7 +796,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                     <DialogTitle>Confirmar Exclusão do Caso</DialogTitle>
                     <DialogDescription>
                         Tem certeza de que deseja excluir o caso <strong class="font-medium">"{{ process.title }}"</strong>?
-                        Esta ação não poderá ser desfeita e todos os dados associados (tarefas, documentos, anotações) também poderão ser afetados.
+                        Esta ação não poderá ser desfeita e todos os dados associados (tarefas, documentos, anotações, pagamentos) também poderão ser afetados.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
@@ -773,7 +847,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                     <DialogDescription v-if="processDocumentToDelete">
                         Tem certeza de que deseja excluir o documento <strong class="font-medium">"{{ processDocumentToDelete.name }}"</strong>? Esta ação não poderá ser desfeita.
                     </DialogDescription>
-                    <DialogDescription v-else>
+                     <DialogDescription v-else>
                         Tem certeza de que deseja excluir este documento? Esta ação não poderá ser desfeita.
                     </DialogDescription>
                 </DialogHeader>
@@ -813,7 +887,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                         <div>
                             <Label for="taskDueDate">Data de Vencimento</Label>
                             <Input id="taskDueDate" type="date" v-model="taskForm.due_date" />
-                            <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
+                             <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
                         </div>
                         <div>
                             <Label for="taskResponsible">Responsável</Label>
@@ -850,7 +924,7 @@ const isArchived = computed(() => !!props.process.archived_at);
                         <Button type="submit" :disabled="taskForm.processing">
                             <PlusCircle class="mr-2 h-4 w-4" v-if="!editingTask && !taskForm.processing" />
                             <Edit3 class="mr-2 h-4 w-4" v-if="editingTask && !taskForm.processing" />
-                            <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                             <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>

@@ -5,6 +5,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Pagination from '@/components/Pagination.vue';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import {
     Table,
     TableBody,
@@ -25,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle } from 'lucide-vue-next'; // Adicionado AlertTriangle
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle } from 'lucide-vue-next';
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
@@ -60,23 +61,25 @@ interface RelatedContact {
     business_name?: string;
     type?: 'physical' | 'legal';
 }
+
+// --- ALTERAÇÃO 1: Interface Process ---
 interface Process {
     id: string;
     title?: string;
-    // pendencies?: string | number | null; // Removido, usaremos pending_tasks_count
-    pending_tasks_count: number; // <--- ADICIONADO: Esta propriedade virá do backend
+    pending_tasks_count: number;
     contact: RelatedContact | null;
     responsible: User | null;
     status: string | null;
-    status_label?: string; // Adicionado para consistência, se o backend enviar
+    status_label?: string;
     updated_at: string;
-    tags: string[] | null; // Mantido se você usa tags para outra coisa
+    tags: string[] | null;
     workflow: string;
     workflow_label?: string;
     stage: number;
     stage_label?: string;
     origin?: string | null;
-    negotiated_value?: number | string | null;
+    // negotiated_value?: number | string | null; // Removido
+    payments_sum_amount?: number | null; // Adicionado
     created_at: string;
     priority?: 'low' | 'medium' | 'high';
     priority_label?: string;
@@ -96,7 +99,7 @@ interface SelectOption {
 }
 
 interface ProcessIndexProps {
-    processes: PaginatedResponse<Process>; // Agora Process inclui pending_tasks_count
+    processes: PaginatedResponse<Process>;
     filters?: {
         search?: string;
         workflow?: Process['workflow'];
@@ -145,8 +148,9 @@ const initialSortDirection = (page.props.ziggy?.query?.sort_direction as 'asc' |
 const sortColumn = ref<string>(initialSortBy);
 const sortDirection = ref<'asc' | 'desc'>(initialSortDirection);
 
+// --- ALTERAÇÃO 2: Habilitar ordenação por valor ---
 const sortableColumns: Record<string, string> = {
-    pending_tasks_count: 'pending_tasks_count', // <--- ADICIONADO para ordenação
+    pending_tasks_count: 'pending_tasks_count',
     contact_name: 'contact.name',
     responsible_name: 'responsible.name',
     stage: 'stage',
@@ -155,6 +159,7 @@ const sortableColumns: Record<string, string> = {
     title: 'title',
     workflow: 'workflow',
     priority: 'priority',
+    payments_sum_amount: 'payments_sum_amount', // Adicionado
     created_at: 'created_at',
 };
 
@@ -176,6 +181,18 @@ const formatDateForTable = (dateString: string | null | undefined): string => {
             day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
         });
     } catch (e) { return dateString; }
+};
+
+// --- ALTERAÇÃO 3: Helper para formatar moeda ---
+const formatCurrency = (value: number | string | null | undefined): string => {
+    const numericValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (numericValue === null || numericValue === undefined || isNaN(numericValue)) {
+        return '---'; // Retorna um placeholder para valores não definidos
+    }
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+    }).format(numericValue);
 };
 
 const currentStagesForFilter = computed(() => {
@@ -221,7 +238,6 @@ function selectArchivedCases() {
     isShowingArchived.value = true;
     applyAllFilters();
 }
-
 
 function selectStage(stageKey: number | null) {
     activeStage.value = stageKey;
@@ -294,14 +310,15 @@ watch(searchTerm, () => {
     }, 300);
 });
 
+// --- ALTERAÇÃO 4: Adicionar coluna de valor nos cabeçalhos ---
 const tableHeaders: { key: string; label: string; sortable: boolean, class?: string }[] = [
-    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[25%]' }, // Movido Título para o início
-    { key: 'pending_tasks_count', label: 'Pendências', sortable: true, class: 'w-[10%] text-center' }, // Ajustado key e classe
-    { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[20%]' },
+    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[25%]' },
+    { key: 'pending_tasks_count', label: 'Pendências', sortable: true, class: 'w-[10%] text-center' },
+    { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[15%]' },
     { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
-    { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[15%]' },
+    { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[10%]' },
+    { key: 'payments_sum_amount', label: 'Valor Negociado', sortable: true, class: 'w-[10%] text-right' }, // Adicionado
     { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' },
-    // { key: 'priority', label: 'Prioridade', sortable: true, class: 'w-[10%]' }, // Removido prioridade para simplificar
 ];
 
 </script>
@@ -518,7 +535,8 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                             <option value="workflow">Workflow</option>
                             <option value="priority">Prioridade</option>
                             <option value="status">Status do Caso</option>
-                            <option value="pending_tasks_count">Pendências</option> </select>
+                            <option value="payments_sum_amount">Valor Negociado</option> <option value="pending_tasks_count">Pendências</option>
+                        </select>
                         <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1 h-9 w-9">
                             <ArrowUpDown class="h-4 w-4" :class="{'transform rotate-180': sortDirection === 'desc'}" />
                         </Button>
@@ -576,15 +594,14 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {{ displayValue(process_item.stage_label || process_item.stage) }}
                                         </TableCell>
+                                        
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-right font-mono text-gray-700 dark:text-gray-300">
+                                            {{ formatCurrency(process_item.payments_sum_amount) }}
+                                        </TableCell>
+                                        
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {{ formatDateForTable(process_item.updated_at) }}
                                         </TableCell>
-                                        <!-- <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            <Badge v-if="process_item.priority" :variant="getPriorityVariant(process_item.priority)" class="text-xs">
-                                                {{ process_item.priority_label || process_item.priority }}
-                                            </Badge>
-                                            <span v-else>N/A</span>
-                                        </TableCell> -->
                                     </Link>
                                 </template>
                                 <TableRow v-else>

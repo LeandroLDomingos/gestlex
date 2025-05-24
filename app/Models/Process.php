@@ -236,4 +236,9 @@ class Process extends Model
     {
         return $this->belongsToMany(Contact::class, 'contact_process');
     }
+
+    public function payments()
+    {
+        return $this->hasMany(ProcessPayment::class);
+    }
 }

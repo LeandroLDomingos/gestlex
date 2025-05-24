@@ -14,7 +14,6 @@ return new class extends Migration {
             $table->uuid('id')->primary();
             $table->string('title', 255);
             $table->string('origin', 255)->nullable();
-            $table->decimal('negotiated_value', 15, 2)->nullable();
             $table->text('description')->nullable();
 
             // Chave estrangeira para o usuário responsável

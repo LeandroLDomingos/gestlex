@@ -14,7 +14,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-// import InputError from '@/Components/InputError.vue'; // Descomente se tiver este componente
+// import InputError from '@/Components/InputError.vue';
 
 // Tipos
 interface BreadcrumbItem {
@@ -49,8 +49,24 @@ interface ContactSelectItem {
     type: 'physical' | 'legal';
 }
 
-// Interface para o objeto Processo recebido como prop
-// Deve corresponder à estrutura do seu modelo Process no backend, incluindo os acessores
+interface RelatedContact {
+    id: number | string;
+    name: string;
+    business_name?: string;
+    type?: 'physical' | 'legal';
+}
+
+// --- ALTERAÇÃO 1: Interface PaymentData ---
+interface PaymentData {
+    id?: string | number; // ID do pagamento, se existente
+    amount: number | null;
+    method: string | null;
+    date: string | null; // Formato YYYY-MM-DD
+    notes: string | null;
+    status?: string; // Status do pagamento, se aplicável
+}
+
+// --- ALTERAÇÃO 2: Ajustar Interface ProcessData ---
 interface ProcessData {
     id: string;
     title: string;
@@ -59,37 +75,30 @@ interface ProcessData {
     responsible_id: string | number | null;
     workflow: string;
     stage: number;
-    due_date: string | null;
+    due_date: string | null; // Data de vencimento do CASO
     priority: 'low' | 'medium' | 'high';
     status: string | null;
     origin: string | null;
-    negotiated_value: number | null;
-    // Adicione os labels se eles vierem do backend como parte do objeto process
+    // negotiated_value: number | null; // Removido
     workflow_label?: string;
     stage_label?: string;
     priority_label?: string;
     status_label?: string;
-    contact?: RelatedContact; // Para exibir o nome do contato
-    // Outros campos...
+    contact?: RelatedContact;
+    // payments?: PaymentData[]; // Se fosse carregar todos os pagamentos
 }
 
-interface RelatedContact { // Já definido no seu Show.vue, mas repetindo para clareza
-    id: number | string;
-    name: string;
-    business_name?: string;
-    type?: 'physical' | 'legal';
-}
-
-
-// Props esperadas do controller
+// --- ALTERAÇÃO 3: Atualizar Props ---
 const props = defineProps<{
-    process: ProcessData; // O processo a ser editado
+    process: ProcessData;
     users?: UserSelectItem[];
     contactsList?: ContactSelectItem[];
     availableWorkflows?: WorkflowOption[];
-    allStages?: Record<string, StageOption[]>; // Todos os estágios agrupados por workflow key
-    statusesForForm?: SelectOption[]; // Nome da prop vinda do controller
-    prioritiesForForm?: SelectOption[]; // Nome da prop vinda do controller
+    allStages?: Record<string, StageOption[]>;
+    statusesForForm?: SelectOption[];
+    prioritiesForForm?: SelectOption[];
+    currentPayment?: PaymentData | null; // Adicionado para o pagamento existente
+    paymentMethods?: string[]; // Adicionado para os métodos de pagamento
     errors?: Record<string, string>;
 }>();
 
@@ -114,18 +123,27 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
     return url;
 };
 
+// --- ALTERAÇÃO 4: Modificar useForm ---
 const form = useForm({
     title: props.process.title || '',
     description: props.process.description || '',
-    contact_id: String(props.process.contact_id), // Garante que seja string para o Select
+    contact_id: String(props.process.contact_id),
     responsible_id: props.process.responsible_id ? String(props.process.responsible_id) : null,
     workflow: props.process.workflow,
-    stage: props.process.stage, // Deve ser a chave numérica
-    due_date: props.process.due_date ? props.process.due_date.substring(0,10) : '', // Formato YYYY-MM-DD para input date
+    stage: props.process.stage,
+    due_date: props.process.due_date ? props.process.due_date.substring(0,10) : '', // Data de vencimento do CASO
     priority: props.process.priority || 'medium',
-    status: props.process.status || 'Aberto',
+    status: props.process.status || 'Aberto', // Status do CASO
     origin: props.process.origin || '',
-    negotiated_value: props.process.negotiated_value || null,
+    // negotiated_value: props.process.negotiated_value || null, // Removido
+
+    // Adicionado objeto de pagamento, inicializado com currentPayment
+    payment: {
+        amount: props.currentPayment?.amount || null,
+        method: props.currentPayment?.method || null,
+        date: props.currentPayment?.date ? props.currentPayment.date.substring(0,10) : '', // Data do pagamento
+        notes: props.currentPayment?.notes || '',
+    },
 });
 
 const pageTitle = computed(() => `Editar Caso: ${props.process.title}`);
@@ -160,42 +178,38 @@ const currentStages = computed<StageOption[]>(() => {
 
 watch(() => form.workflow, (newWorkflowSelected, oldWorkflowSelected) => {
     if (newWorkflowSelected !== oldWorkflowSelected) {
-        // Apenas reseta o estágio se o novo workflow for diferente e não for o inicial
-        // Se o formulário está sendo inicializado, props.process.stage já deve estar correto
-        if (oldWorkflowSelected !== null) { // Evita resetar na carga inicial se workflow já estiver definido
+        if (oldWorkflowSelected !== null) {
              form.stage = null;
         }
         form.clearErrors('stage');
     }
 });
 
-// Garante que o estágio inicial seja definido corretamente se o workflow já estiver preenchido
 onMounted(() => {
     if (form.workflow && props.process.stage) {
-        // Verifica se o estágio atual é válido para o workflow atual
-        const stagesForCurrentWorkflow = props.allStages && props.allStages[form.workflow] 
-            ? props.allStages[form.workflow] 
+        const stagesForCurrentWorkflow = props.allStages && props.allStages[form.workflow]
+            ? props.allStages[form.workflow]
             : [];
         if (!stagesForCurrentWorkflow.some(s => s.key === form.stage)) {
-            form.stage = null; // Reseta se o estágio não for válido para o workflow
+            form.stage = null;
         }
     }
 });
-
 
 function submitProcess() {
     const dataToSubmit = {
         ...form.data(),
         responsible_id: form.responsible_id === 'null' ? null : form.responsible_id,
         contact_id: form.contact_id === 'null' || form.contact_id === '' ? null : form.contact_id,
-        status: form.status === 'null' ? null : form.status,
+        status: form.status === 'null' ? null : form.status, // Status do CASO
         priority: form.priority === 'null' ? null : form.priority,
+        // O objeto form.payment já está no formato correto
     };
 
     form.transform(() => dataToSubmit)
-        .put(routeHelper('processes.update', props.process.id), { // Usar PUT para update
+        .put(routeHelper('processes.update', props.process.id), {
         onSuccess: () => {
-            // O backend deve redirecionar para processes.show
+            // O backend deve redirecionar
         },
         onError: (formErrors) => {
             console.error('Erro ao atualizar caso:', formErrors);
@@ -236,20 +250,20 @@ function submitProcess() {
             <div>
               <Label for="contact_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Contato Principal <span class="text-red-500">*</span></Label>
               <Select v-model="form.contact_id" required>
-                  <SelectTrigger id="contact_id" class="mt-1 w-full">
-                    <SelectValue placeholder="Selecione um contato" />
-                  </SelectTrigger>
-                  <SelectContent>
-                     <SelectItem v-if="!props.contactsList || props.contactsList.length === 0" value="null" disabled>
-                        Nenhum contato disponível
+                <SelectTrigger id="contact_id" class="mt-1 w-full">
+                  <SelectValue placeholder="Selecione um contato" />
+                </SelectTrigger>
+                <SelectContent>
+                   <SelectItem v-if="!props.contactsList || props.contactsList.length === 0" value="null" disabled>
+                    Nenhum contato disponível
+                  </SelectItem>
+                  <template v-else>
+                    <SelectItem v-for="contact in props.contactsList" :key="contact.id" :value="String(contact.id)">
+                      {{ getContactDisplayForSelect(contact) }}
                     </SelectItem>
-                    <template v-else>
-                        <SelectItem v-for="contact in props.contactsList" :key="contact.id" :value="String(contact.id)">
-                        {{ getContactDisplayForSelect(contact) }}
-                        </SelectItem>
-                    </template>
-                  </SelectContent>
-                </Select>
+                  </template>
+                </SelectContent>
+              </Select>
               <div v-if="form.errors.contact_id" class="text-sm text-red-600 dark:text-red-400 mt-1">
                 {{ form.errors.contact_id }}
               </div>
@@ -273,19 +287,19 @@ function submitProcess() {
               <div>
                 <Label for="workflow" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Workflow <span class="text-red-500">*</span></Label>
                 <Select v-model="form.workflow" required>
-                    <SelectTrigger id="workflow" class="mt-1 w-full">
-                        <SelectValue placeholder="Selecione um workflow" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem v-if="!props.availableWorkflows || props.availableWorkflows.length === 0" value="null" disabled>
-                            Nenhum workflow disponível
+                  <SelectTrigger id="workflow" class="mt-1 w-full">
+                    <SelectValue placeholder="Selecione um workflow" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-if="!props.availableWorkflows || props.availableWorkflows.length === 0" value="null" disabled>
+                        Nenhum workflow disponível
+                    </SelectItem>
+                    <template v-else>
+                        <SelectItem v-for="wf in props.availableWorkflows" :key="wf.key" :value="wf.key">
+                            {{ wf.label }}
                         </SelectItem>
-                        <template v-else>
-                            <SelectItem v-for="wf in props.availableWorkflows" :key="wf.key" :value="wf.key">
-                                {{ wf.label }}
-                            </SelectItem>
-                        </template>
-                    </SelectContent>
+                    </template>
+                  </SelectContent>
                 </Select>
                 <div v-if="form.errors.workflow" class="text-sm text-red-600 dark:text-red-400 mt-1">
                   {{ form.errors.workflow }}
@@ -295,22 +309,22 @@ function submitProcess() {
               <div>
                 <Label for="stage" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Estágio <span class="text-red-500">*</span></Label>
                 <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0" required>
-                    <SelectTrigger id="stage" class="mt-1 w-full">
-                        <SelectValue placeholder="Selecione um estágio" />
-                    </SelectTrigger>
-                    <SelectContent>
-                         <SelectItem v-if="!form.workflow" value="null" disabled>
-                            Selecione um workflow primeiro
+                  <SelectTrigger id="stage" class="mt-1 w-full">
+                    <SelectValue placeholder="Selecione um estágio" />
+                  </SelectTrigger>
+                  <SelectContent>
+                      <SelectItem v-if="!form.workflow" value="null" disabled>
+                        Selecione um workflow primeiro
+                      </SelectItem>
+                      <SelectItem v-else-if="currentStages.length === 0" value="null" disabled>
+                        Nenhum estágio para este workflow
+                      </SelectItem>
+                      <template v-else>
+                        <SelectItem v-for="st in currentStages" :key="st.key" :value="st.key">
+                            {{ st.label }}
                         </SelectItem>
-                        <SelectItem v-else-if="currentStages.length === 0" value="null" disabled>
-                            Nenhum estágio para este workflow
-                        </SelectItem>
-                        <template v-else>
-                            <SelectItem v-for="st in currentStages" :key="st.key" :value="st.key">
-                                {{ st.label }}
-                            </SelectItem>
-                        </template>
-                    </SelectContent>
+                      </template>
+                  </SelectContent>
                 </Select>
                 <div v-if="form.errors.stage" class="text-sm text-red-600 dark:text-red-400 mt-1">
                   {{ form.errors.stage }}
@@ -356,35 +370,90 @@ function submitProcess() {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div>
-                    <Label for="negotiated_value" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor Negociado (R$)</Label>
-                    <Input
-                        id="negotiated_value"
-                        type="number"
-                        step="0.01"
-                        v-model.number="form.negotiated_value"
-                        class="mt-1 block w-full"
-                        placeholder="Ex: 1500.50"
-                    />
-                    <div v-if="form.errors.negotiated_value" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                        {{ form.errors.negotiated_value }}
+            <fieldset class="border-t border-gray-200 dark:border-gray-700 pt-6 mt-6">
+                <legend class="text-base font-medium text-gray-900 dark:text-gray-100 mb-4">Detalhes do Pagamento</legend>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <Label for="payment_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor do Pagamento (R$)</Label>
+                        <Input
+                            id="payment_amount"
+                            type="number"
+                            step="0.01"
+                            v-model.number="form.payment.amount"
+                            class="mt-1 block w-full"
+                            placeholder="Ex: 1500.50"
+                        />
+                        <div v-if="form.errors['payment.amount']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.amount'] }}
+                        </div>
+                    </div>
+
+                    <div>
+                        <Label for="payment_method" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Método de Pagamento</Label>
+                        <Select v-model="form.payment.method">
+                            <SelectTrigger id="payment_method" class="mt-1 w-full">
+                                <SelectValue placeholder="Selecione um método" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="null">Nenhum / Não Especificado</SelectItem>
+                                <SelectItem v-if="!props.paymentMethods || props.paymentMethods.length === 0" value="null" disabled>
+                                    Nenhum método configurado
+                                </SelectItem>
+                                <template v-else>
+                                    <SelectItem v-for="method in props.paymentMethods" :key="method" :value="method">
+                                        {{ method }}
+                                    </SelectItem>
+                                </template>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="form.errors['payment.method']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.method'] }}
+                        </div>
                     </div>
                 </div>
-                <div>
-                    <Label for="due_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Vencimento</Label>
-                    <Input
-                        id="due_date"
-                        type="date"
-                        v-model="form.due_date"
-                        class="mt-1 block w-full"
-                    />
-                    <div v-if="form.errors.due_date" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                        {{ form.errors.due_date }}
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div>
+                        <Label for="payment_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data do Pagamento</Label>
+                        <Input
+                            id="payment_date"
+                            type="date"
+                            v-model="form.payment.date"
+                            class="mt-1 block w-full"
+                        />
+                        <div v-if="form.errors['payment.date']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors['payment.date'] }}
+                        </div>
+                    </div>
+                     <div>
+                        <Label for="due_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Vencimento do Caso</Label>
+                        <Input
+                            id="due_date"
+                            type="date"
+                            v-model="form.due_date"
+                            class="mt-1 block w-full"
+                        />
+                        <div v-if="form.errors.due_date" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {{ form.errors.due_date }}
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div class="mt-6">
+                    <Label for="payment_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Observações do Pagamento</Label>
+                    <Textarea
+                        id="payment_notes"
+                        v-model="form.payment.notes"
+                        rows="3"
+                        class="mt-1 block w-full"
+                        placeholder="Detalhes adicionais sobre o pagamento, condições, etc."
+                    />
+                    <div v-if="form.errors['payment.notes']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                        {{ form.errors['payment.notes'] }}
+                    </div>
+                </div>
+            </fieldset>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                  <div>
                     <Label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Prioridade <span class="text-red-500">*</span></Label>
                     <Select v-model="form.priority" required>
@@ -430,14 +499,14 @@ function submitProcess() {
             </div>
 
 
-            <div class="flex justify-end space-x-3 pt-4">
+            <div class="flex justify-end space-x-3 pt-8">
               <Link :href="routeHelper('processes.show', props.process.id)">
                 <Button type="button" variant="outline">Cancelar</Button>
               </Link>
               <Button type="submit" :disabled="form.processing">
                 <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
                 {{ form.processing ? 'Atualizando...' : 'Salvar Alterações' }}
               </Button>
