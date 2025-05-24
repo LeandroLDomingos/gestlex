@@ -27,7 +27,7 @@ export interface SharedData extends PageProps {
 }
 
 export interface User {
-  id: number;
+  id: number | string; // Ajustado para aceitar string se ID for UUID
   name: string;
   email: string;
   avatar?: string;
@@ -37,7 +37,7 @@ export interface User {
 }
 
 export type ContactType = 'physical' | 'legal'
-export type Gender = 'female' | 'male'
+export type Gender = 'female' | 'male' | 'other' | 'prefer_not_to_say'; // Adicionado prefer_not_to_say
 export type MaritalStatus = 'single' | 'married' | 'common_law' | 'divorced' | 'widowed' | 'separated'
 
 
@@ -51,12 +51,13 @@ export interface Contact {
   gender_label?: string
   nationality?: string
   marital_status?: MaritalStatus
+  marital_status_label?: string; // Adicionado
   profession?: string
   business_activity?: string
   business_name?: string
   tax_state?: string
   tax_city?: string
-  administrator_id?: number
+  administrator_id?: number | string; // Ajustado para aceitar string
   zip_code?: string
   address?: string;
   neighborhood?: string;
@@ -68,72 +69,51 @@ export interface Contact {
   updated_at?: string
   emails?: ContactEmail[]
   phones?: ContactPhone[]
-  admin_contact?: Contact
+  administrator?: Contact // Alterado de admin_contact para administrator para corresponder ao model
   date_of_birth?: string
   annotations?: ContactAnnotation[];
   documents?: ContactDocument[];
-  processes?: RelatedProcess[];
-}
-export interface Process {
-  id: string
-  title: string
-  origin: string
-  negotiated_value: number
-  description: string
-  workflow: number
-  stage: number
-  responsible: { name: string }
+  processes?: RelatedProcess[]; // Casos/Processos onde este contato é o principal
+  administeredContacts?: Contact[]; // Contatos que este contato (PF) administra
+  tasks?: Task[]; // Tarefas diretamente associadas a este contato
+  display_name?: string; // Accessor
 }
 
 export interface ContactEmail {
-  id: number
-  contact_id: number
+  id: number | string; // Ajustado
+  contact_id: number | string; // Ajustado
   email: string
 }
 
 export interface ContactPhone {
-  id: number
-  contact_id: number
+  id: number | string; // Ajustado
+  contact_id: number | string; // Ajustado
   phone: string
 }
 
 export type BreadcrumbItemType = BreadcrumbItem;
 
-/**
- * Define a estrutura para um link de paginação individual,
- * como retornado pelo paginador do Laravel.
- */
 export interface PaginationLink {
-  url: string | null; // URL para a página, ou null se não aplicável (ex: "...")
-  label: string;      // Rótulo do link (ex: "1", "2", "&laquo; Previous", "Next &raquo;", "...")
-  active: boolean;    // True se este link representa a página atual
+  url: string | null;
+  label: string;
+  active: boolean;
 }
 
-/**
- * Define a estrutura para metadados da paginação,
- * como retornado pelo paginator do Laravel.
- */
 export interface PaginationMeta {
-  current_page: number;    // A página atual
-  from: number | null;         // O número do primeiro item na página atual
-  last_page: number;       // A última página disponível
-  links: PaginationLink[]; // Array de links de metadados (diferente dos links principais)
-  path: string;            // URL base para a paginação
-  per_page: number;        // Número de itens por página
-  to: number | null;           // O número do último item na página atual
-  total: number;           // Número total de itens em todas as páginas
+  current_page: number;
+  from: number | null;
+  last_page: number;
+  links: PaginationLink[];
+  path: string;
+  per_page: number;
+  to: number | null;
+  total: number;
 }
 
-/**
- * Define a estrutura genérica para uma resposta paginada do Laravel via Inertia.
- * @template T O tipo dos itens de dados dentro da coleção paginada.
- */
 export interface PaginatedResponse<T> {
-  data: T[];                     // Array dos itens de dados para a página atual
-  links: PaginationLink[];       // Array de links de navegação da paginação (Previous, Next, números de página)
-  meta: PaginationMeta;          // Objeto contendo metadados da paginação
-
-  // Campos adicionais que o paginador do Laravel geralmente inclui no nível raiz:
+  data: T[];
+  links: PaginationLink[];
+  meta: PaginationMeta;
   current_page: number;
   first_page_url: string | null;
   from: number | null;
@@ -147,8 +127,6 @@ export interface PaginatedResponse<T> {
   total: number;
 }
 
-// Em resources/js/types/index.ts ou um novo arquivo resources/js/types/process.d.ts
-
 export interface UserReference {
   id: string | number;
   name: string;
@@ -156,133 +134,180 @@ export interface UserReference {
 
 export interface ContactReference {
   id: string | number;
-  name: string; // Nome da pessoa física ou nome fantasia/razão social da jurídica
+  name: string;
+  business_name?: string; // Adicionado
   type: 'physical' | 'legal';
 }
 
 export interface ProcessAnnotation {
   id: string | number;
   content: string;
-  user_name: string; // Nome do usuário que criou a anotação
-  created_at: string; // Data da criação
-  // Adicione outros campos se necessário, como 'user_avatar_url'
+  user_name: string;
+  created_at: string;
+  user?: UserReference; // Adicionado
 }
 
-export interface ProcessTask {
+export interface ProcessTask { // Renomeado para evitar conflito com Task principal
   id: string | number;
   title: string;
-  due_date: string; // Data de entrega
-  is_overdue: boolean; // Indica se está atrasada
-  responsible_user: UserReference | null; // Usuário responsável pela tarefa
-  status: string; // Ex: "Pendente", "Em Andamento", "Concluída"
+  due_date: string | null;
+  is_overdue: boolean;
+  responsible_user: UserReference | null;
+  status: string;
   description?: string | null;
-  // Adicione outros campos como 'priority', 'completed_at', etc.
+  priority?: string; // Adicionado
+  status_label?: string; // Adicionado
+  priority_label?: string; // Adicionado
+  responsibleUser?: UserReference; // Para consistência
 }
 
 export interface ProcessDocument {
   id: string | number;
   name: string;
-  url: string; // URL para download ou visualização
-  uploaded_at: string;
-  file_type_icon?: string; // Ex: 'pdf', 'doc', 'img' para mostrar um ícone
-  size?: string;
+  url: string;
+  uploaded_at?: string; // Tornar opcional se nem sempre presente
+  created_at?: string; // Adicionado para consistência
+  file_type_icon?: string;
+  size?: string | number; // Ajustado
+  description?: string | null; // Adicionado
+  uploader?: UserReference; // Adicionado
 }
 
 export interface ProcessHistoryEntry {
   id: string | number;
-  action: string; // Ex: "Criou tarefa", "Atualizou status", "Adicionou documento"
-  description: string; // Detalhes da ação
+  action: string;
+  description: string;
   user_name: string;
   created_at: string;
+  user?: UserReference; // Adicionado
 }
+
+// Interface para Pagamentos do Processo
+export interface ProcessPaymentData { // Renomeado para evitar conflito com Model
+  id: string;
+  amount: number | string;
+  payment_type: 'a_vista' | 'parcelado'; // NOVO
+  payment_type_label?: string; // NOVO (label do accessor)
+  payment_method: string | null;
+  payment_date: string | null; // Formato YYYY-MM-DD
+  status: 'pending' | 'paid' | 'failed' | 'refunded';
+  notes: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 
 export interface Process {
-  id: string; // UUID
+  id: string;
   title: string;
   origin: string | null;
-  negotiated_value: number | string | null;
+  // negotiated_value: number | string | null; // Removido, agora é parte de payments
   description: string | null;
   workflow: 'prospecting' | 'consultative' | 'administrative' | 'judicial';
-  workflow_label?: string; // Accessor do backend
+  workflow_label?: string;
   stage: number | null;
-  stage_label?: string; // Accessor do backend
+  stage_label?: string;
   responsible: UserReference | null;
-  contact: ContactReference | null; // Contato principal associado ao processo
+  contact: ContactReference | null;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null; // Adicionado
+  is_archived?: boolean; // Adicionado (accessor)
+  priority: 'low' | 'medium' | 'high'; // Adicionado
+  priority_label?: string; // Adicionado
+  status: string; // Ex: Aberto, Em Andamento
+  status_label?: string; // Adicionado
+  due_date?: string | null; // Adicionado
 
-  // Relacionamentos que seriam carregados (eager-loaded)
   annotations?: ProcessAnnotation[];
-  tasks?: ProcessTask[];
+  tasks?: ProcessTask[]; // Usar ProcessTask
   documents?: ProcessDocument[];
-  history_entries?: ProcessHistoryEntry[];
-  // Outros campos relevantes
-  video_placeholder_url?: string; // Para o cartão azul
+  historyEntries?: ProcessHistoryEntry[]; // Corrigido nome
+  payments?: ProcessPaymentData[]; // Usar ProcessPaymentData
+  payments_sum_amount?: number | string; // Soma dos pagamentos
+  pending_tasks_count?: number; // Contagem de tarefas pendentes
 }
 
-export interface BreadcrumbItem {
-  title: string;
-  href: string;
-}
 
 export interface ContactAnnotation {
   id: string | number;
   content: string;
   user_name?: string;
   created_at: string;
-  user?: { name: string };
+  user?: UserReference;
 }
 
 export interface ContactDocument {
-  id: string | number; // Deveria ser number se vem do DB
+  id: string | number;
   name: string;
   url: string;
-  uploaded_at: string;
+  uploaded_at?: string; // Tornar opcional
+  created_at?: string; // Adicionado
   file_type_icon?: string;
-  size?: string;
-  description?: string;
+  size?: string | number; // Ajustado
+  description?: string | null; // Adicionado
+  uploader?: UserReference; // Adicionado
 }
 
-export interface RelatedProcess {
+export interface RelatedProcess { // Usado em Contact.processes
   id: string;
   title: string;
   workflow_label?: string;
-  status?: string;
+  status?: string; // Ou um tipo mais específico se tiver
+  status_label?: string; // Adicionado
   updated_at: string;
+  documents?: ProcessDocument[]; // Adicionado para consistência
+  responsible?: UserReference; // Adicionado
 }
 
 
-// Interface para Tarefa (Task)
-// Esta é a definição principal para a sua Task
-export type TaskStatus = 'Pendente' | 'Em Andamento' | 'Concluída' | 'Cancelada'; // Use as chaves exatas do seu backend
-export type TaskPriority = 'Baixa' | 'Média' | 'Alta'; // Use as chaves exatas do seu backend
+export type TaskStatus = 'Pendente' | 'Em Andamento' | 'Concluída' | 'Cancelada';
+export type TaskPriority = 'Baixa' | 'Média' | 'Alta';
 
 export interface Task {
-  id: number | string; // UUID
+  id: number | string;
   title: string;
   description?: string | null;
-  due_date?: string | null; // Formato YYYY-MM-DD
+  due_date?: string | null;
   status: TaskStatus;
   priority: TaskPriority;
-  completed_at?: string | null; // Datetime
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 
-  process_id?: number | string | null; // ID do Processo se vinculada
-  process?: RelatedProcess | null;     // Objeto Processo resumido
+  process_id?: number | string | null;
+  process?: RelatedProcess | null;
 
-  contact_id?: number | string | null; // ID do Contato se vinculada diretamente
-  contact?: Contact | null;           // Objeto Contato resumido (pode usar um ContactSummary)
+  contact_id?: number | string | null;
+  contact?: ContactReference | null; // Usar ContactReference para resumo
 
-  responsible_user_id?: number | string | null; // ID do responsável principal
-  responsibleUser?: User | null;               // Objeto User do responsável principal
+  responsible_user_id?: number | string | null;
+  responsibleUser?: UserReference | null; // Usar UserReference
 
-  // Se uma tarefa pode ter múltiplos responsáveis ou múltiplos contatos vinculados (além do principal)
-  responsibles?: User[];        // Array de usuários responsáveis (via tabela pivot)
-  // associatedContacts?: Contact[]; // Array de contatos associados (via tabela pivot) - renomeado de 'contacts' para evitar conflito
+  responsibles?: UserReference[];
 
-  // Accessors (se o backend os envia ou se você calcula no frontend)
   status_label?: string;
   priority_label?: string;
   is_overdue?: boolean;
+}
+
+// Tipos para os formulários
+export interface ProcessFormData {
+    title: string;
+    description: string | null;
+    contact_id: string | number | null;
+    responsible_id: string | number | null;
+    workflow: string; // Chave do workflow
+    stage: number | null;
+    due_date: string | null;
+    priority: string; // Chave da prioridade
+    origin: string | null;
+    status: string | null; // Chave do status
+    payment: { // Agrupar dados do pagamento
+        amount: string | number | null;
+        payment_type: string | null; // 'a_vista' ou 'parcelado'
+        method: string | null;
+        date: string | null;
+        notes: string | null;
+    };
 }

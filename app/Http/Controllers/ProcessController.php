@@ -8,7 +8,8 @@ use App\Models\Task;
 use App\Models\User;
 use App\Models\Contact;
 use App\Models\ProcessAnnotation;
-use App\Models\ProcessPayment; // Adicione a importação do novo model
+use App\Models\ProcessPayment;
+use App\Enums\PaymentType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -23,9 +24,6 @@ use Carbon\Carbon;
 
 class ProcessController extends Controller
 {
-    /**
-     * Aplica os filtros de busca comuns à query de Processos.
-     */
     protected function applySearchFilters(Builder $query, ?string $searchTerm): Builder
     {
         return $query->when($searchTerm, function ($query, $searchTerm) {
@@ -42,24 +40,20 @@ class ProcessController extends Controller
                             ->orWhere('business_name', 'LIKE', "%{$searchTerm}%");
                     });
                 if (is_numeric($searchTerm)) {
-                    // Busca também na soma dos pagamentos ou em pagamentos individuais
-                    // Se você quiser buscar por um valor exato em algum pagamento:
-                    $q->orWhereHas('payments', function($paymentQuery) use ($searchTerm) {
-                        $paymentQuery->where('amount', '=', $searchTerm);
+                    // Assumindo que a coluna no DB para o valor total é 'amount'
+                    // ou 'total_amount' se você atualizou a migration. Pelo erro, é 'amount'.
+                    $q->orWhereHas('payments', function ($paymentQuery) use ($searchTerm) {
+                        $paymentQuery->where('amount', '=', $searchTerm) // Usar 'amount' se for o nome da coluna
+                            ->orWhere('advance_payment_amount', '=', $searchTerm);
                     });
-                    // Se você quiser buscar pela SOMA dos pagamentos (requer que a soma já esteja calculada na query principal, o que pode ser complexo para o filtro aqui)
-                    // Para simplificar, a busca por valor numérico aqui se concentrará em pagamentos individuais.
                 }
             });
         });
     }
 
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request): Response
     {
-        $sortBy = $request->input('sort_by', 'created_at');
+        $sortBy = $request->input('sort_by', 'updated_at'); // Default sort
         $sortDirection = $request->input('sort_direction', 'desc');
         $search = $request->input('search', '');
         $workflowFilter = $request->input('workflow');
@@ -71,13 +65,13 @@ class ProcessController extends Controller
         $dateToFilter = $request->input('date_to');
         $showArchived = $request->boolean('archived', false);
 
-        // Atualize 'negotiated_value' para 'payments_sum_amount' se for usar para ordenação
-        $directSortableColumns = ['title', 'origin', 'payments_sum_amount', 'workflow', 'stage', 'priority', 'status', 'due_date', 'created_at', 'updated_at', 'archived_at', 'pending_tasks_count'];
+        // Se a coluna no banco for 'amount', o alias deve refletir isso ou o nome da coluna real
+        $directSortableColumns = ['title', 'origin', 'payments_sum_amount', /* ou o nome correto do alias */ 'workflow', 'stage', 'priority', 'status', 'due_date', 'created_at', 'updated_at', 'archived_at', 'pending_tasks_count'];
         $relationSortableColumns = ['contact.name', 'responsible.name'];
         $allowedSortColumns = array_merge($directSortableColumns, $relationSortableColumns);
 
         if (!in_array($sortBy, $allowedSortColumns)) {
-            $sortBy = 'created_at';
+            $sortBy = 'updated_at';
         }
         if (!in_array(strtolower($sortDirection), ['asc', 'desc'])) {
             $sortDirection = 'desc';
@@ -87,8 +81,11 @@ class ProcessController extends Controller
             ->with([
                 'responsible:id,name',
                 'contact:id,name,business_name,type',
+                'payments' // Carregar pagamentos para exibir detalhes se necessário na listagem
             ])
-            // Adiciona a soma dos valores dos pagamentos
+            // ATENÇÃO: 'amount' deve ser o nome da coluna no banco de dados para a soma.
+            // Se você renomeou para 'total_amount' na migration, use 'total_amount' aqui.
+            // Pelo erro, a coluna é 'amount'.
             ->withSum('payments as payments_sum_amount', 'amount')
             ->withCount([
                 'tasks as pending_tasks_count' => function (Builder $query) {
@@ -135,8 +132,19 @@ class ProcessController extends Controller
                 ->orderBy('users.name', $sortDirection)
                 ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
-            $processesQuery->orderBy($sortBy, $sortDirection);
+            // Garante que a ordenação por 'payments_sum_amount' funcione.
+            if ($sortBy === 'payments_sum_amount') {
+                // O Eloquent pode ter dificuldade em ordenar por um alias de agregação diretamente.
+                // Uma forma é obter o ID e depois reordenar, ou usar subqueries mais complexas se necessário.
+                // Para simplificar, podemos ordenar após a paginação no frontend ou aceitar a ordenação padrão do DB.
+                // Se a ordenação no DB for crítica, pode ser necessário um DB::raw select.
+                // Por agora, vamos confiar que o Eloquent/DB consegue lidar com o alias.
+                $processesQuery->orderBy($sortBy, $sortDirection);
+            } else {
+                $processesQuery->orderBy($sortBy, $sortDirection);
+            }
         }
+
 
         $processes = $processesQuery->paginate(15)->withQueryString();
 
@@ -207,9 +215,6 @@ class ProcessController extends Controller
         ]);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create(Request $request): Response
     {
         $contactId = $request->query('contact_id');
@@ -235,9 +240,9 @@ class ProcessController extends Controller
         $availablePriorities = defined('App\Models\Process::PRIORITIES') ?
             collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
             [['key' => Process::PRIORITY_LOW, 'label' => 'Baixa'], ['key' => Process::PRIORITY_MEDIUM, 'label' => 'Média'], ['key' => Process::PRIORITY_HIGH, 'label' => 'Alta']];
-        
-        // Você pode querer passar uma lista de métodos de pagamento para o formulário
-        $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência', 'Outro']; // Exemplo
+
+        $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência Bancária', 'Dinheiro', 'Cheque', 'Outro'];
+        $paymentTypes = PaymentType::forFrontend();
 
         return Inertia::render('processes/Create', [
             'contact_id' => $contact ? $contact->id : null,
@@ -248,13 +253,11 @@ class ProcessController extends Controller
             'allStages' => $allStages,
             'availableStatuses' => $availableStatuses,
             'availablePriorities' => $availablePriorities,
-            'paymentMethods' => $paymentMethods, // Envia para o Vue
+            'paymentMethods' => $paymentMethods,
+            'paymentTypes' => $paymentTypes,
         ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $validatedData = $request->validate([
@@ -267,12 +270,43 @@ class ProcessController extends Controller
             'due_date' => 'nullable|date_format:Y-m-d',
             'priority' => ['required', Rule::in(array_keys(Process::PRIORITIES ?? [Process::PRIORITY_LOW, Process::PRIORITY_MEDIUM, Process::PRIORITY_HIGH]))],
             'origin' => 'nullable|string|max:100',
-            // 'negotiated_value' => 'nullable|numeric|min:0', // REMOVIDO
             'status' => ['nullable', 'string', Rule::in(array_keys(Process::STATUSES ?? []))],
-            // Validação para os dados do pagamento (espera que venham como um objeto 'payment' no request)
-            'payment.amount' => 'nullable|numeric|min:0|required_with:payment.method', // Se houver método, o valor é obrigatório
-            'payment.method' => 'nullable|string|max:100|required_with:payment.amount', // Se houver valor, o método é obrigatório
-            'payment.date' => 'nullable|date_format:Y-m-d',
+
+            'payment.total_amount' => 'nullable|numeric|min:0|required_with:payment.payment_type',
+            'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
+            'payment.payment_type' => ['nullable', 'string', Rule::in(collect(PaymentType::cases())->pluck('value')->all())],
+            'payment.payment_method' => 'nullable|string|max:100',
+            'payment.single_payment_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::A_VISTA->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
+            'payment.number_of_installments' => [
+                'nullable',
+                'integer',
+                'min:1',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
+            'payment.first_installment_due_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
             'payment.notes' => 'nullable|string|max:1000',
         ]);
 
@@ -286,19 +320,44 @@ class ProcessController extends Controller
         DB::beginTransaction();
         try {
             $processData = collect($validatedData)->except('payment')->all();
-            $paymentInput = $validatedData['payment'] ?? null;
+            $paymentInput = $validatedData['payment'] ?? [];
 
             $process = Process::create($processData);
 
-            // Cria o pagamento se um valor ou método foi informado
-            if ($paymentInput && (!empty($paymentInput['amount']) || !empty($paymentInput['method']))) {
-                $process->payments()->create([
-                    'amount' => $paymentInput['amount'] ?? 0, // Default para 0 se não informado mas método sim
-                    'payment_method' => $paymentInput['method'] ?? 'Não informado',
-                    'payment_date' => $paymentInput['date'] ?? null,
+            if (isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] >= 0 && isset($paymentInput['payment_type'])) {
+                $paymentDataToStore = [
+                    'amount' => (float) $paymentInput['total_amount'], // Nome da coluna no banco
+                    'advance_payment_amount' => isset($paymentInput['advance_payment_amount']) ? (float) $paymentInput['advance_payment_amount'] : null,
+                    'payment_type' => $paymentInput['payment_type'],
+                    'payment_method' => $paymentInput['payment_method'] ?? null,
                     'notes' => $paymentInput['notes'] ?? null,
-                    'status' => 'pending', // Ou outro status padrão desejado
-                ]);
+                    'status' => 'pending',
+                    'single_payment_date' => null,
+                    'number_of_installments' => null,
+                    'installment_amount' => null,
+                    'first_installment_due_date' => null,
+                ];
+
+                $remainingAmount = $paymentDataToStore['amount'] - ($paymentDataToStore['advance_payment_amount'] ?? 0);
+
+                if ($paymentDataToStore['payment_type'] === PaymentType::A_VISTA->value) {
+                    if ($remainingAmount > 0 || ($paymentDataToStore['amount'] > 0 && is_null($paymentDataToStore['advance_payment_amount']))) {
+                        $paymentDataToStore['single_payment_date'] = $paymentInput['single_payment_date'] ?? null;
+                    }
+                } elseif ($paymentDataToStore['payment_type'] === PaymentType::PARCELADO->value) {
+                    if ($remainingAmount > 0) {
+                        $paymentDataToStore['number_of_installments'] = isset($paymentInput['number_of_installments']) ? (int) $paymentInput['number_of_installments'] : null;
+                        $paymentDataToStore['first_installment_due_date'] = $paymentInput['first_installment_due_date'] ?? null;
+                        if ($paymentDataToStore['number_of_installments'] && $paymentDataToStore['number_of_installments'] > 0) {
+                            $paymentDataToStore['installment_amount'] = round($remainingAmount / $paymentDataToStore['number_of_installments'], 2);
+                        }
+                    } else {
+                        $paymentDataToStore['number_of_installments'] = null;
+                        $paymentDataToStore['first_installment_due_date'] = null;
+                        $paymentDataToStore['installment_amount'] = null;
+                    }
+                }
+                $process->payments()->create($paymentDataToStore);
             }
 
             $process->historyEntries()->create([
@@ -315,81 +374,21 @@ class ProcessController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Erro ao criar caso/processo: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
-            return back()->withInput()->with('error', 'Ocorreu um erro inesperado ao criar o caso.');
+            return back()->withInput()->with('error', 'Ocorreu um erro inesperado ao criar o caso: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Process $process): Response
-    {
-        $process->load([
-            'responsible:id,name',
-            'contact:id,name,business_name,type',
-            'annotations' => function ($query) {
-                $query->with('user:id,name')->latest();
-            },
-            'historyEntries' => function ($query) {
-                $query->with('user:id,name')->latest();
-            },
-            'tasks' => function ($query) {
-                $query->with('responsibleUser:id,name')->orderBy('due_date');
-            },
-            'documents' => function ($query) {
-                $query->with('uploader:id,name')->orderBy('created_at', 'desc');
-            },
-            'payments' => function ($query) { // Carrega os pagamentos
-                $query->orderBy('created_at', 'desc'); // Ou 'payment_date'
-            }
-        ]);
-        $process->append(['workflow_label', 'stage_label', 'priority_label', 'status_label']);
 
-        $availableStages = [];
-        if ($process->workflow) {
-            $availableStages = collect(Process::getStagesForWorkflow($process->workflow))
-                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])
-                ->values()->all();
-        }
-
-        $availablePriorities = defined('App\Models\Process::PRIORITIES') ?
-            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            [['key' => Process::PRIORITY_LOW, 'label' => 'Baixa'], ['key' => Process::PRIORITY_MEDIUM, 'label' => 'Média'], ['key' => Process::PRIORITY_HIGH, 'label' => 'Alta']];
-
-        $availableStatuses = defined('App\Models\Process::STATUSES') ?
-            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
-        
-        // Você pode querer passar uma lista de métodos de pagamento para o formulário de edição de pagamento (se houver)
-        $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência', 'Outro']; // Exemplo
-
-        return Inertia::render('processes/Show', [
-            'process' => $process,
-            'users' => User::orderBy('name')->get(['id', 'name']),
-            'availableStages' => $availableStages,
-            'availablePriorities' => $availablePriorities,
-            'availableStatuses' => $availableStatuses,
-            'paymentMethods' => $paymentMethods, // Para um possível modal de edição/adição de pagamento
-        ]);
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(Process $process): Response
     {
-        $process->load(['contact:id,name,business_name,type', 'responsible:id,name', 'payments']); // Carrega o primeiro pagamento para preencher o form
+        $process->load(['contact:id,name,business_name,type', 'responsible:id,name', 'payments']);
         $users = User::orderBy('name')->get(['id', 'name']);
         $contacts = Contact::orderBy('name')->get(['id', 'name', 'business_name', 'type']);
-        $availableWorkflows = collect(Process::WORKFLOWS)->map(function ($label, $key) {
-            return ['key' => $key, 'label' => $label];
-        })->values()->all();
+        $availableWorkflows = collect(Process::WORKFLOWS)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
         $allStages = [];
         foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
             $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
-                ->map(function ($label, $key) {
-                    return ['key' => (int) $key, 'label' => $label];
-                })->values()->all();
+                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])->values()->all();
         }
 
         $statusesForForm = defined('App\Models\Process::STATUSES') ?
@@ -400,10 +399,24 @@ class ProcessController extends Controller
             collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
             [['key' => 'low', 'label' => 'Baixa'], ['key' => 'medium', 'label' => 'Média'], ['key' => 'high', 'label' => 'Alta']];
 
-        // Para preencher o formulário de edição com o primeiro pagamento (ou um pagamento principal)
         $currentPayment = $process->payments->first();
-         $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência', 'Outro']; // Exemplo
+        $paymentDataForForm = null;
+        if ($currentPayment) {
+            $paymentDataForForm = [
+                'total_amount' => $currentPayment->amount, // Mapeia 'amount' do DB para 'total_amount' do form
+                'advance_payment_amount' => $currentPayment->advance_payment_amount,
+                'payment_type' => $currentPayment->payment_type instanceof PaymentType ? $currentPayment->payment_type->value : $currentPayment->payment_type,
+                'payment_method' => $currentPayment->payment_method,
+                'single_payment_date' => $currentPayment->single_payment_date ? Carbon::parse($currentPayment->single_payment_date)->toDateString() : null,
+                'number_of_installments' => $currentPayment->number_of_installments,
+                'first_installment_due_date' => $currentPayment->first_installment_due_date ? Carbon::parse($currentPayment->first_installment_due_date)->toDateString() : null,
+                'notes' => $currentPayment->notes,
+            ];
+        }
 
+
+        $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência Bancária', 'Dinheiro', 'Cheque', 'Outro'];
+        $paymentTypes = PaymentType::forFrontend();
 
         return Inertia::render('processes/Edit', [
             'process' => $process,
@@ -413,14 +426,12 @@ class ProcessController extends Controller
             'allStages' => $allStages,
             'statusesForForm' => $statusesForForm,
             'prioritiesForForm' => $prioritiesForForm,
-            'currentPayment' => $currentPayment, // Envia o pagamento atual para o formulário
+            'currentPaymentData' => $paymentDataForForm,
             'paymentMethods' => $paymentMethods,
+            'paymentTypes' => $paymentTypes,
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Process $process)
     {
         $validatedData = $request->validate([
@@ -433,12 +444,43 @@ class ProcessController extends Controller
             'due_date' => 'nullable|date_format:Y-m-d',
             'priority' => ['required', Rule::in(array_keys(Process::PRIORITIES ?? [Process::PRIORITY_LOW, Process::PRIORITY_MEDIUM, Process::PRIORITY_HIGH]))],
             'origin' => 'nullable|string|max:100',
-            // 'negotiated_value' => 'nullable|numeric|min:0', // REMOVIDO
             'status' => ['nullable', 'string', Rule::in(array_keys(Process::STATUSES ?? []))],
-            // Validação para os dados do pagamento
-            'payment.amount' => 'nullable|numeric|min:0|required_with:payment.method',
-            'payment.method' => 'nullable|string|max:100|required_with:payment.amount',
-            'payment.date' => 'nullable|date_format:Y-m-d',
+
+            'payment.total_amount' => 'nullable|numeric|min:0|required_with:payment.payment_type',
+            'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
+            'payment.payment_type' => ['nullable', 'string', Rule::in(collect(PaymentType::cases())->pluck('value')->all())],
+            'payment.payment_method' => 'nullable|string|max:100',
+            'payment.single_payment_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::A_VISTA->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
+            'payment.number_of_installments' => [
+                'nullable',
+                'integer',
+                'min:1',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
+            'payment.first_installment_due_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    $payment = $request->input('payment', []);
+                    $totalAmount = (float) ($payment['total_amount'] ?? 0);
+                    $advanceAmount = (float) ($payment['advance_payment_amount'] ?? 0);
+                    return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value && ($totalAmount - $advanceAmount) > 0;
+                })
+            ],
             'payment.notes' => 'nullable|string|max:1000',
         ]);
 
@@ -449,59 +491,65 @@ class ProcessController extends Controller
 
         DB::beginTransaction();
         try {
-            $oldData = [
-                'stage_label' => $process->stage_label,
-                'priority_label' => $process->priority_label,
-                'status_label' => $process->status_label,
-                // Adicionar outros campos que você quer logar se mudarem
-            ];
-
             $processData = collect($validatedData)->except('payment')->all();
-            $paymentInput = $validatedData['payment'] ?? null;
+            $paymentInput = $validatedData['payment'] ?? [];
 
             $process->update($processData);
 
-            if ($paymentInput && (!empty($paymentInput['amount']) || !empty($paymentInput['method']))) {
-                // Atualiza o primeiro pagamento ou cria um novo se não existir nenhum.
-                // Se você quiser permitir múltiplos pagamentos e ter um formulário para gerenciar eles,
-                // a lógica aqui seria mais complexa (ex: sincronizar um array de pagamentos).
-                // Para um único "pagamento principal" associado ao processo, updateOrCreate é adequado.
-                $process->payments()->updateOrCreate(
-                    ['process_id' => $process->id], // Condição para encontrar o pagamento (geralmente o primeiro)
-                                                    // Se você tiver apenas um pagamento por processo, isso funciona.
-                                                    // Se puder ter múltiplos, você precisaria de um ID do pagamento vindo do form.
-                    [
-                        'amount' => $paymentInput['amount'] ?? 0,
-                        'payment_method' => $paymentInput['method'] ?? 'Não informado',
-                        'payment_date' => $paymentInput['date'] ?? null,
-                        'notes' => $paymentInput['notes'] ?? null,
-                        // O status do pagamento pode precisar de lógica própria para ser atualizado
-                    ]
-                );
-            } elseif (empty($paymentInput['amount']) && empty($paymentInput['method'])) {
-                // Se o usuário limpou os campos de pagamento, podemos optar por deletar o pagamento associado
-                $process->payments()->delete(); // Isso deletará TODOS os pagamentos. Cuidado se permitir múltiplos.
+            $paymentRecord = $process->payments()->first();
+
+            if (isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] >= 0 && isset($paymentInput['payment_type'])) {
+                $paymentDataToUpdate = [
+                    'amount' => (float) $paymentInput['total_amount'], // Mapeia para 'amount'
+                    'advance_payment_amount' => isset($paymentInput['advance_payment_amount']) ? (float) $paymentInput['advance_payment_amount'] : null,
+                    'payment_type' => $paymentInput['payment_type'],
+                    'payment_method' => $paymentInput['payment_method'] ?? null,
+                    'notes' => $paymentInput['notes'] ?? null,
+                    'status' => $paymentRecord ? $paymentRecord->status : 'pending',
+                    'single_payment_date' => null,
+                    'number_of_installments' => null,
+                    'installment_amount' => null,
+                    'first_installment_due_date' => null,
+                ];
+
+                $remainingAmount = $paymentDataToUpdate['amount'] - ($paymentDataToUpdate['advance_payment_amount'] ?? 0);
+
+                if ($paymentDataToUpdate['payment_type'] === PaymentType::A_VISTA->value) {
+                    if ($remainingAmount > 0 || ($paymentDataToUpdate['amount'] > 0 && is_null($paymentDataToUpdate['advance_payment_amount']))) {
+                        $paymentDataToUpdate['single_payment_date'] = $paymentInput['single_payment_date'] ?? null;
+                    }
+                } elseif ($paymentDataToUpdate['payment_type'] === PaymentType::PARCELADO->value) {
+                    if ($remainingAmount > 0) {
+                        $paymentDataToUpdate['number_of_installments'] = isset($paymentInput['number_of_installments']) ? (int) $paymentInput['number_of_installments'] : null;
+                        $paymentDataToUpdate['first_installment_due_date'] = $paymentInput['first_installment_due_date'] ?? null;
+                        if ($paymentDataToUpdate['number_of_installments'] && $paymentDataToUpdate['number_of_installments'] > 0) {
+                            $paymentDataToUpdate['installment_amount'] = round($remainingAmount / $paymentDataToUpdate['number_of_installments'], 2);
+                        }
+                    } else {
+                        $paymentDataToUpdate['number_of_installments'] = null;
+                        $paymentDataToUpdate['first_installment_due_date'] = null;
+                        $paymentDataToUpdate['installment_amount'] = null;
+                    }
+                }
+
+                if ($paymentRecord) {
+                    $paymentRecord->update($paymentDataToUpdate);
+                } else {
+                    // Apenas cria se total_amount > 0
+                    if ($paymentDataToUpdate['amount'] > 0) {
+                        $process->payments()->create($paymentDataToUpdate);
+                    }
+                }
+            } elseif ($paymentRecord) {
+                $paymentRecord->delete();
             }
 
 
             $process->refresh();
-
-            $historyDescription = "Caso atualizado por " . auth()->user()->name . ".";
-            $specificChanges = [];
-
-            if ($process->wasChanged('stage')) {
-                $specificChanges[] = "Estágio alterado de \"{$oldData['stage_label']}\" para \"{$process->stage_label}\".";
-            }
-            // ... (outros logs de alteração)
-
-            if (!empty($specificChanges)) {
-                $historyDescription .= "\nDetalhes:\n- " . implode("\n- ", $specificChanges);
-            }
-
-            if ($process->wasChanged() || ($paymentInput && $process->payments->count() > 0 && $process->payments->first()->wasChanged())) { // Verifica se o processo ou o pagamento mudou
+            if ($process->wasChanged() || ($paymentRecord && $paymentRecord->wasChanged())) {
                 $process->historyEntries()->create([
                     'action' => 'Caso Editado',
-                    'description' => $historyDescription,
+                    'description' => "O caso \"{$process->title}\" foi atualizado.",
                     'user_id' => auth()->id(),
                 ]);
             }
@@ -515,22 +563,18 @@ class ProcessController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao atualizar caso/processo {$process->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
-            return back()->withInput()->with('error', 'Ocorreu um erro inesperado ao atualizar o caso.');
+            return back()->withInput()->with('error', 'Ocorreu um erro inesperado ao atualizar o caso: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Remove o Processo (Caso) especificado do banco de dados.
-     */
+    // ... (destroy, updateStage, etc. - mantidos como antes)
     public function destroy(Process $process)
     {
         DB::beginTransaction();
         try {
             $processTitle = $process->title;
 
-            // Se ProcessPayment usa SoftDeletes e você quer que eles sejam soft-deletados com o processo:
-            $process->payments()->delete(); // Adicionado para deletar pagamentos associados
-
+            $process->payments()->delete();
             $process->annotations()->delete();
             $process->historyEntries()->delete();
             $process->tasks()->delete();
@@ -540,7 +584,7 @@ class ProcessController extends Controller
                 }
                 $doc->delete();
             });
-            $process->delete(); // Se estiver usando SoftDeletes, isso marcará como deletado
+            $process->delete();
 
             DB::commit();
             return Redirect::route('processes.index')
@@ -553,8 +597,6 @@ class ProcessController extends Controller
         }
     }
 
-    // --- MÉTODOS PARA ATUALIZAÇÕES RÁPIDAS (STAGE, PRIORITY, STATUS) ---
-    // Estes métodos permanecem os mesmos, pois não lidam diretamente com o valor negociado.
     public function updateStage(Request $request, Process $process)
     {
         $validated = $request->validate([
@@ -647,9 +689,7 @@ class ProcessController extends Controller
             return Redirect::back()->with('error', 'Ocorreu um erro ao atualizar o status.');
         }
     }
-    
-    // --- MÉTODOS DE ARQUIVAMENTO ---
-    // Estes métodos permanecem os mesmos.
+
     public function archive(Request $request, Process $process)
     {
         DB::beginTransaction();
@@ -666,7 +706,7 @@ class ProcessController extends Controller
                 DB::commit();
                 return Redirect::route('processes.index')->with('success', 'Caso arquivado com sucesso.');
             }
-            DB::rollBack(); // Se já está arquivado, não há o que fazer, então rollback é apropriado.
+            DB::rollBack();
             return Redirect::route('processes.show', $process->id)->with('info', 'Este caso já está arquivado.');
 
         } catch (\Exception $e) {
@@ -692,7 +732,7 @@ class ProcessController extends Controller
                 DB::commit();
                 return Redirect::route('processes.show', $process->id)->with('success', 'Caso restaurado com sucesso.');
             }
-            DB::rollBack(); // Se não está arquivado, não há o que fazer.
+            DB::rollBack();
             return Redirect::route('processes.show', $process->id)->with('info', 'Este caso não está arquivado.');
 
         } catch (\Exception $e) {
@@ -702,9 +742,6 @@ class ProcessController extends Controller
         }
     }
 
-    // --- MÉTODOS PARA ANOTAÇÕES, DOCUMENTOS, TAREFAS ---
-    // Estes métodos permanecem os mesmos, pois não lidam diretamente com o valor negociado.
-    // Se precisar de ajustes neles devido a outras lógicas, me avise.
     public function storeProcessAnnotation(Request $request, Process $process)
     {
         $data = $request->validate([
@@ -740,11 +777,11 @@ class ProcessController extends Controller
             return Redirect::back()->with('error', 'Ocorreu um erro ao excluir a anotação.');
         }
     }
-    
+
     public function storeProcessDocument(Request $request, Process $process)
     {
         $data = $request->validate([
-            'file' => 'required|file|max:20480', // Max 20MB
+            'file' => 'required|file|max:20480', // 20MB Max
             'description' => 'nullable|string|max:255',
         ]);
 
@@ -754,8 +791,9 @@ class ProcessController extends Controller
             $fileName = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs("process_documents/{$process->id}", $fileName, 'public');
 
-            if (!$path)
+            if (!$path) {
                 throw new \Exception("Falha ao armazenar o arquivo.");
+            }
 
             $process->documents()->create([
                 'uploader_user_id' => auth()->id(),
@@ -811,7 +849,7 @@ class ProcessController extends Controller
             return back()->with('error', 'Falha ao excluir documento.');
         }
     }
-    
+
     public function storeProcessTask(Request $request, Process $process)
     {
         $validatedData = $request->validate([
@@ -829,7 +867,7 @@ class ProcessController extends Controller
         DB::beginTransaction();
         try {
             $taskData = $validatedData;
-            $taskData['status'] = $validatedData['status'] ?? Task::STATUS_PENDING; // Use a constante do Model Task
+            $taskData['status'] = $validatedData['status'] ?? Task::STATUS_PENDING;
 
             $task = $process->tasks()->create($taskData);
 
@@ -928,4 +966,59 @@ class ProcessController extends Controller
             return back()->with('error', 'Falha ao excluir tarefa.');
         }
     }
+public function show(Process $process): Response
+    {
+        $process->load([
+            'responsible:id,name',
+            'contact:id,name,business_name,type',
+            'annotations' => function ($query) {
+                $query->with('user:id,name')->latest();
+            },
+            'historyEntries' => function ($query) {
+                $query->with('user:id,name')->latest();
+            },
+            'tasks' => function ($query) {
+                $query->with('responsibleUser:id,name')->orderBy('due_date');
+            },
+            'documents' => function ($query) {
+                $query->with('uploader:id,name')->orderBy('created_at', 'desc');
+            },
+            'payments' => function ($query) {
+                $query->orderBy('created_at', 'desc');
+            }
+        ]);
+        $process->append(['workflow_label', 'stage_label', 'priority_label', 'status_label']);
+
+        // Lógica para buscar dados para os selects (similar ao método create/edit)
+        $availableStages = [];
+        if ($process->workflow) {
+            $availableStages = collect(Process::getStagesForWorkflow($process->workflow))
+                ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])
+                ->values()->all();
+        }
+
+        $users = User::orderBy('name')->get(['id', 'name']); // Para modais na view Show
+        $availablePriorities = defined('App\Models\Process::PRIORITIES') ?
+            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            [['key' => 'low', 'label' => 'Baixa'], ['key' => 'medium', 'label' => 'Média'], ['key' => 'high', 'label' => 'Alta']];
+
+        $availableStatuses = defined('App\Models\Process::STATUSES') ?
+            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
+            []; // Ajuste conforme necessário
+
+        $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência Bancária', 'Dinheiro', 'Cheque', 'Outro'];
+        $paymentTypes = \App\Enums\PaymentType::forFrontend();
+
+
+        return Inertia::render('processes/Show', [
+            'process' => $process,
+            'users' => $users,
+            'availableStages' => $availableStages,
+            'availablePriorities' => $availablePriorities,
+            'availableStatuses' => $availableStatuses,
+            'paymentMethods' => $paymentMethods,
+            'paymentTypes' => $paymentTypes,
+        ]);
+    }
+
 }

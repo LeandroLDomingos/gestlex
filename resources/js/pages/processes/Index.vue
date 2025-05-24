@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
-import Pagination from '@/components/Pagination.vue';
+import Pagination from '@/components/Pagination.vue'; // Presumo que este componente exista
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -22,11 +22,11 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select'; // Adicionado SelectGroup
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle } from 'lucide-vue-next';
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle, DollarSign } from 'lucide-vue-next'; // Adicionado DollarSign
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
@@ -62,7 +62,7 @@ interface RelatedContact {
     type?: 'physical' | 'legal';
 }
 
-// --- ALTERAÇÃO 1: Interface Process ---
+// Interface Process já inclui payments_sum_amount do seu script
 interface Process {
     id: string;
     title?: string;
@@ -78,8 +78,7 @@ interface Process {
     stage: number;
     stage_label?: string;
     origin?: string | null;
-    // negotiated_value?: number | string | null; // Removido
-    payments_sum_amount?: number | null; // Adicionado
+    payments_sum_amount?: number | string | null; // Mantido como string ou number
     created_at: string;
     priority?: 'low' | 'medium' | 'high';
     priority_label?: string;
@@ -148,7 +147,6 @@ const initialSortDirection = (page.props.ziggy?.query?.sort_direction as 'asc' |
 const sortColumn = ref<string>(initialSortBy);
 const sortDirection = ref<'asc' | 'desc'>(initialSortDirection);
 
-// --- ALTERAÇÃO 2: Habilitar ordenação por valor ---
 const sortableColumns: Record<string, string> = {
     pending_tasks_count: 'pending_tasks_count',
     contact_name: 'contact.name',
@@ -159,7 +157,7 @@ const sortableColumns: Record<string, string> = {
     title: 'title',
     workflow: 'workflow',
     priority: 'priority',
-    payments_sum_amount: 'payments_sum_amount', // Adicionado
+    payments_sum_amount: 'payments_sum_amount', // Já estava aqui
     created_at: 'created_at',
 };
 
@@ -176,18 +174,22 @@ const displayValue = (value: any, fallback: string = 'N/A') => {
 const formatDateForTable = (dateString: string | null | undefined): string => {
     if (!dateString) return 'N/A';
     try {
-        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
+        // Tenta normalizar a data para UTC antes de formatar para evitar problemas de fuso horário
+        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString.replace(/-/g, '/') + ' GMT');
+        if (isNaN(date.getTime())) return dateString; // Retorna original se inválida
+
         return date.toLocaleDateString('pt-BR', {
-            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            // hour: '2-digit', minute: '2-digit', // Removido hora para simplificar
+            // timeZone: 'UTC' // Comentado pois toLocaleDateString já usa o fuso do browser por padrão
         });
     } catch (e) { return dateString; }
 };
 
-// --- ALTERAÇÃO 3: Helper para formatar moeda ---
 const formatCurrency = (value: number | string | null | undefined): string => {
     const numericValue = typeof value === 'string' ? parseFloat(value) : value;
     if (numericValue === null || numericValue === undefined || isNaN(numericValue)) {
-        return '---'; // Retorna um placeholder para valores não definidos
+        return '---';
     }
     return new Intl.NumberFormat('pt-BR', {
         style: 'currency',
@@ -238,6 +240,7 @@ function selectArchivedCases() {
     isShowingArchived.value = true;
     applyAllFilters();
 }
+
 
 function selectStage(stageKey: number | null) {
     activeStage.value = stageKey;
@@ -310,15 +313,16 @@ watch(searchTerm, () => {
     }, 300);
 });
 
-// --- ALTERAÇÃO 4: Adicionar coluna de valor nos cabeçalhos ---
+// --- ALTERAÇÃO: Adicionada coluna "Valor Negociado" ao tableHeaders ---
 const tableHeaders: { key: string; label: string; sortable: boolean, class?: string }[] = [
-    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[25%]' },
+    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[20%]' }, // Ajuste de largura
     { key: 'pending_tasks_count', label: 'Pendências', sortable: true, class: 'w-[10%] text-center' },
     { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[15%]' },
     { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
     { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[10%]' },
-    { key: 'payments_sum_amount', label: 'Valor Negociado', sortable: true, class: 'w-[10%] text-right' }, // Adicionado
-    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[15%]' },
+    { key: 'payments_sum_amount', label: 'Valor Total', sortable: true, class: 'w-[10%] text-right' }, // Nova coluna
+    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[10%]' }, // Ajuste de largura
+    { key: 'status', label: 'Status', sortable: true, class: 'w-[10%] text-center' }, // Adicionando Status
 ];
 
 </script>
@@ -535,7 +539,8 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                             <option value="workflow">Workflow</option>
                             <option value="priority">Prioridade</option>
                             <option value="status">Status do Caso</option>
-                            <option value="payments_sum_amount">Valor Negociado</option> <option value="pending_tasks_count">Pendências</option>
+                            <option value="payments_sum_amount">Valor Total</option>
+                            <option value="pending_tasks_count">Pendências</option>
                         </select>
                         <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1 h-9 w-9">
                             <ArrowUpDown class="h-4 w-4" :class="{'transform rotate-180': sortDirection === 'desc'}" />
@@ -595,12 +600,19 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                             {{ displayValue(process_item.stage_label || process_item.stage) }}
                                         </TableCell>
                                         
+                                      
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-right font-mono text-gray-700 dark:text-gray-300">
                                             {{ formatCurrency(process_item.payments_sum_amount) }}
                                         </TableCell>
                                         
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {{ formatDateForTable(process_item.updated_at) }}
+                                        </TableCell>
+                                        <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                                            <Badge v-if="process_item.status_label" :variant="getPriorityVariant(process_item.priority)">
+                                                {{ process_item.status_label }}
+                                            </Badge>
+                                            <span v-else>{{ displayValue(process_item.status) }}</span>
                                         </TableCell>
                                     </Link>
                                 </template>

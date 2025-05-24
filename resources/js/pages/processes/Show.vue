@@ -31,13 +31,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-    Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, Link as LinkIcon, // Adicionado LinkIcon
+    Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, Link as LinkIcon,
     MessageSquare, History, Briefcase, DollarSign, Users,
     CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3
 } from 'lucide-vue-next';
 
-import type { ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process'; // Mantido o tipo Process daqui se ele já for global e completo
-// Se o tipo Process de @/types/process não incluir 'payments', precisaremos definir localmente ou ajustá-lo globalmente.
+import type { ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
 
 const RGlobal = (window as any).route;
 const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
@@ -60,49 +59,54 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
     return url;
 };
 
-// --- ALTERAÇÃO 1: Interface PaymentData (se não existir globalmente) ---
+// Interface para os dados de um pagamento individual
 interface PaymentData {
     id: string | number;
     amount: number | null;
+    type: string | null; // Chave do tipo de pagamento (ex: 'upfront', 'installment')
     payment_method: string | null;
     payment_date: string | null; // Formato YYYY-MM-DD
     status: string | null; // Ex: 'pending', 'paid', 'failed'
     notes: string | null;
+    installments_number: number | null; // Número de parcelas
     created_at: string;
     updated_at: string;
 }
 
-// --- ALTERAÇÃO 2: Ajustar Interface Process (ou usar uma global atualizada) ---
-// Supondo que a prop 'process' agora inclua 'payments' e não mais 'negotiated_value'
-interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value'> { // Reutiliza o tipo global Process, omitindo negotiated_value
+// Interface para os detalhes do processo, incluindo a relação de pagamentos
+// Omit 'negotiated_value' se ele foi removido do seu tipo global 'Process'
+// Omit 'payments' também para evitar conflito e definir localmente com a 'PaymentData' acima
+interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value' | 'payments'> {
     archived_at?: string | null;
     documents?: ProcessDocument[];
     history_entries?: ProcessHistoryEntry[];
     tasks?: ProcessTask[];
-    payments?: PaymentData[]; // Adiciona a relação de pagamentos
-    // negotiated_value?: number | string | null; // Removido
+    payments?: PaymentData[]; // Array de pagamentos usando a interface PaymentData definida acima
 }
 
+// Interface para opções de select genéricas (Status, Prioridade)
 interface SelectOption {
     key: string;
     label: string;
 }
 
+// Interface para opções de estágio
 interface StageOption {
     key: number;
     label: string;
 }
 
+// Props recebidas do controller
 const props = defineProps<{
-    process: ProcessDetails; // Usa a interface ajustada
+    process: ProcessDetails; // Usa a interface ProcessDetails atualizada
     availableStages?: StageOption[];
     availablePriorities?: SelectOption[];
     availableStatuses?: SelectOption[];
     users?: UserReference[];
-    // paymentMethods?: string[]; // Não é necessário aqui, a menos que haja um formulário de edição de pagamento nesta tela
+    paymentTypes?: Array<{ key: string; label: string }>; // Array para mapear chaves de tipo de pagamento para rótulos
 }>();
 
-const activeMainTab = ref<'tasks' | 'documents' | 'history' | 'payments'>('tasks'); // Adicionado 'payments' como opção de aba
+const activeMainTab = ref<'tasks' | 'documents' | 'history' | 'payments'>('tasks');
 const showNewAnnotationForm = ref(false);
 const showDeleteProcessDialog = ref(false);
 const processDeleteForm = useForm({});
@@ -166,6 +170,15 @@ const formatCurrency = (value: number | string | null | undefined): string => {
     return numValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
+// Função para obter o rótulo do tipo de pagamento a partir da chave
+const getPaymentTypeLabel = (typeKey: string | null): string => {
+    if (!typeKey) return 'N/A';
+    const foundType = props.paymentTypes?.find(pt => pt.key === typeKey);
+    if (foundType) return foundType.label;
+    // Fallback: capitaliza a chave se o rótulo não for encontrado
+    return typeKey.charAt(0).toUpperCase() + typeKey.slice(1);
+};
+
 const priorityLabelForDisplay = computed(() => props.process.priority_label || props.process.priority || 'N/A');
 const priorityVariantForDisplay = computed((): 'destructive' | 'secondary' | 'outline' | 'default' => {
     if (!props.process.priority) return 'outline';
@@ -200,7 +213,7 @@ function openDeleteProcessDialog() { showDeleteProcessDialog.value = true; }
 function submitDeleteProcess() {
     processDeleteForm.delete(routeHelper('processes.destroy', props.process.id), {
         preserveScroll: false,
-        onSuccess: () => showDeleteProcessDialog.value = false, // O redirect do backend deve levar para index
+        onSuccess: () => showDeleteProcessDialog.value = false,
         onError: (errors) => console.error('Erro ao excluir processo:', errors)
     });
 }
@@ -219,7 +232,7 @@ function submitDeleteProcessAnnotation() {
 }
 
 function updateStage(newStageKey: number) {
-    stageUpdateForm.stage = newStageKey; // Garante que o valor do form está atualizado antes do patch
+    stageUpdateForm.stage = newStageKey;
     stageUpdateForm.patch(routeHelper('processes.updateStage', props.process.id), {
         preserveScroll: true, onSuccess: () => router.reload({ only: ['process'] }),
         onError: (errors) => { console.error('Erro ao atualizar estágio:', errors); stageUpdateForm.stage = props.process.stage; alert(errors.stage || 'Erro ao atualizar estágio.'); }
@@ -328,7 +341,6 @@ function submitDeleteTask() {
 
 const isArchived = computed(() => !!props.process.archived_at);
 
-// --- ALTERAÇÃO 3: Computar a soma dos pagamentos (se houver) ---
 const totalPaymentsAmount = computed(() => {
     if (!props.process.payments || props.process.payments.length === 0) {
         return null;
@@ -518,10 +530,6 @@ const totalPaymentsAmount = computed(() => {
                                 <Clock class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Vencimento do Caso:</span> {{ formatDate(process.due_date) }}
                             </div>
-                            <!-- <div v-if="process.negotiated_value !== null && typeof process.negotiated_value !== 'undefined'" class="flex items-center">
-                                <DollarSign class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                <span class="font-medium mr-1">Valor:</span> {{ formatCurrency(process.negotiated_value) }}
-                            </div> -->
                              <div v-if="process.origin" class="flex items-center">
                                 <LinkIcon class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Origem:</span> {{ process.origin }}
@@ -644,16 +652,20 @@ const totalPaymentsAmount = computed(() => {
                     <div v-if="activeMainTab === 'payments'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Pagamentos Registrados</h3>
-                            <!-- <Button variant="outline" size="sm" @click="openNewPaymentModal" :disabled="isArchived">
-                                <PlusCircle class="h-4 w-4 mr-2" /> Novo Pagamento
-                            </Button> -->
-                            </div>
+                             </div>
                         <div v-if="process.payments && process.payments.length > 0" class="space-y-3">
                             <Card v-for="payment_item in process.payments" :key="payment_item.id" class="hover:shadow-md transition-shadow">
+                                {{ payment_item }}
                                 <CardContent class="p-4">
                                     <div class="flex justify-between items-start">
                                         <div>
                                             <p class="text-lg font-semibold text-indigo-600 dark:text-indigo-400">{{ formatCurrency(payment_item.amount) }}</p>
+                                            <p class="text-sm text-gray-700 dark:text-gray-300">
+                                                Tipo: {{ getPaymentTypeLabel(payment_item.payment_type) }}
+                                            </p>
+                                            <p v-if="payment_item.payment_type === 'parcelado' && payment_item.installments_number" class="text-sm text-gray-700 dark:text-gray-300">
+                                                Parcelas: {{ payment_item.installments_number }}x
+                                            </p>
                                             <p class="text-sm text-gray-700 dark:text-gray-300">Método: {{ payment_item.payment_method || 'N/A' }}</p>
                                         </div>
                                         <Badge :variant="payment_item.status === 'paid' ? 'default' : (payment_item.status === 'pending' ? 'secondary' : 'outline')" class="text-xs">
@@ -823,7 +835,7 @@ const totalPaymentsAmount = computed(() => {
                         </blockquote>
                         Esta ação não poderá ser desfeita.
                     </DialogDescription>
-                    <DialogDescription v-else>
+                     <DialogDescription v-else>
                         Tem certeza de que deseja excluir esta anotação? Esta ação não poderá ser desfeita.
                     </DialogDescription>
                 </DialogHeader>
