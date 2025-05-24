@@ -2,14 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\FinancialTransaction;
 use App\Models\Process;
 use App\Models\ProcessDocument;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\Contact;
 use App\Models\ProcessAnnotation;
-use App\Models\ProcessHistoryEntry; // Certifique-se que está importado
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -892,85 +890,6 @@ class ProcessController extends Controller
             DB::rollBack();
             Log::error("Erro ao excluir tarefa {$task->id} do processo {$process->id}: " . $e->getMessage());
             return back()->with('error', 'Falha ao excluir tarefa.');
-        }
-    }
-public function storeFinancialTransaction(Request $request, Process $process)
-    {
-        if ($process->isArchived()) {
-            return back()->with('error', 'Não é possível adicionar transações financeiras a um caso arquivado.')->setStatusCode(403);
-        }
-
-        $validatedData = $request->validate([
-            'description' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0.01', // Valor sempre positivo no formulário
-            'type' => 'required|in:income,expense',
-            'transaction_date' => 'required|date_format:Y-m-d',
-            'notes' => 'nullable|string|max:5000',
-        ]);
-
-        $amount = (float) $validatedData['amount'];
-        if ($validatedData['type'] === 'expense') {
-            $amount = -$amount; // Armazenar despesas como negativas
-        }
-
-        DB::beginTransaction();
-        try {
-            $transaction = $process->financialTransactions()->create([
-                'description' => $validatedData['description'],
-                'amount' => $amount,
-                'type' => $validatedData['type'],
-                'transaction_date' => $validatedData['transaction_date'],
-                'created_by_user_id' => Auth::id(),
-                'notes' => $validatedData['notes'] ?? null,
-                // contact_id pode ser adicionado aqui se o formulário permitir vincular a um contato específico DENTRO do contexto do processo
-            ]);
-
-            $typeLabel = $transaction->type === 'income' ? 'Receita' : 'Despesa';
-            $process->historyEntries()->create([
-                'action' => "{$typeLabel} Registrada no Caso",
-                'description' => "{$typeLabel} de R$ " . number_format(abs($transaction->amount), 2, ',', '.') . " ('{$transaction->description}') registrada.",
-                'user_id' => Auth::id(),
-            ]);
-
-            DB::commit();
-            return Redirect::route('processes.show', $process->id)->with('success', 'Transação financeira adicionada ao caso com sucesso!');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error("Erro ao adicionar transação financeira ao processo {$process->id}: " . $e->getMessage());
-            return back()->with('error', 'Falha ao adicionar transação financeira.')->withInput();
-        }
-    }
-
-    public function destroyFinancialTransaction(Request $request, Process $process, FinancialTransaction $financialTransaction)
-    {
-        if ($financialTransaction->process_id !== $process->id) {
-            return Redirect::route('processes.show', $process->id)->with('error', 'Transação não pertence a este caso.');
-        }
-        if ($process->isArchived()) {
-            return Redirect::route('processes.show', $process->id)->with('error', 'Não é possível excluir transações de um caso arquivado.');
-        }
-
-        DB::beginTransaction();
-        try {
-            $description = $financialTransaction->description;
-            $amount = abs($financialTransaction->amount);
-            $type = $financialTransaction->type;
-
-            $financialTransaction->delete(); // Soft delete se habilitado no model FinancialTransaction
-
-            $typeLabel = $type === 'income' ? 'Receita' : 'Despesa';
-            $process->historyEntries()->create([
-                'action' => "{$typeLabel} Excluída do Caso",
-                'description' => "{$typeLabel} \"{$description}\" de R$ " . number_format($amount, 2, ',', '.') . " foi excluída do caso.",
-                'user_id' => Auth::id(),
-            ]);
-
-            DB::commit();
-            return Redirect::route('processes.show', $process->id)->with('success', 'Transação financeira excluída com sucesso!');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error("Erro ao excluir transação financeira {$financialTransaction->id} do processo {$process->id}: " . $e->getMessage());
-            return Redirect::route('processes.show', $process->id)->with('error', 'Falha ao excluir transação financeira.');
         }
     }
 }
