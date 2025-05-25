@@ -29,6 +29,11 @@ const mainNavItems: NavItem[] = [
         href: '/tasks',
         icon: ClipboardCheck,
     },
+    {
+        title: 'Financias',
+        href: '/financial-dashboard',
+        icon: DollarSign,
+    },
 ];
 
 const footerNavItems: NavItem[] = [
