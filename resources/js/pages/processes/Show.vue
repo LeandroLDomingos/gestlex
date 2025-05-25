@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
@@ -29,84 +29,74 @@ import {
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select';
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, Link as LinkIcon,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3, HandCoins
 } from 'lucide-vue-next';
 
 import type { ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
 
-const RGlobal = (window as any).route;
-const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
-    if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
-    console.warn(`Helper de rota Ziggy não encontrado para a rota: ${name}. Usando fallback.`);
-    let url = `/${name?.replace(/\./g, '/') || ''}`;
-    if (params) {
-        if (typeof params === 'object' && params !== null && !Array.isArray(params)) {
-            Object.keys(params).forEach(key => {
-                const paramPlaceholder = `:${key}`; const paramPlaceholderBraces = `{${key}}`;
-                if (url.includes(paramPlaceholder)) { url = url.replace(paramPlaceholder, String(params[key])); }
-                else if (url.includes(paramPlaceholderBraces)) { url = url.replace(paramPlaceholderBraces, String(params[key])); }
-                else if (Object.keys(params).length === 1 && !url.includes(String(params[key]))) {
-                    const paramValueString = String(params[key]);
-                    if (url.split('/').pop() !== paramValueString) { url += `/${paramValueString}`; }
-                }
-            });
-        } else if (typeof params !== 'object') { url += `/${params}`; }
-    }
-    return url;
-};
-
 // Interface para os dados de um pagamento individual
 interface PaymentData {
     id: string | number;
-    amount: number | null;
-    type: string | null; // Chave do tipo de pagamento (ex: 'upfront', 'installment')
+    process_id: string | number;
+    total_amount: number | string | null;
+    down_payment_amount: number | string | null;
+    payment_type: string | null;
     payment_method: string | null;
-    payment_date: string | null; // Formato YYYY-MM-DD
-    status: string | null; // Ex: 'pending', 'paid', 'failed'
+    down_payment_date: string | null;
+    number_of_installments: number | null;
+    value_of_installment: number | string | null;
+    status: string | null;
+    status_label?: string;
+    first_installment_due_date: string | null;
     notes: string | null;
-    installments_number: number | null; // Número de parcelas
     created_at: string;
     updated_at: string;
 }
 
-// Interface para os detalhes do processo, incluindo a relação de pagamentos
-// Omit 'negotiated_value' se ele foi removido do seu tipo global 'Process'
-// Omit 'payments' também para evitar conflito e definir localmente com a 'PaymentData' acima
+// Interface para dados do formulário de honorários
+interface FeeFormData {
+    description: string;
+    amount: number | string | null;
+    fee_date: string | null;
+    payment_method: string | null;
+    payment_date: string | null;
+    is_paid: boolean;
+    notes: string | null;
+}
+
 interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value' | 'payments'> {
     archived_at?: string | null;
     documents?: ProcessDocument[];
     history_entries?: ProcessHistoryEntry[];
     tasks?: ProcessTask[];
-    payments?: PaymentData[]; // Array de pagamentos usando a interface PaymentData definida acima
+    payments?: PaymentData[];
 }
 
-// Interface para opções de select genéricas (Status, Prioridade)
 interface SelectOption {
     key: string;
     label: string;
 }
-
-// Interface para opções de estágio
 interface StageOption {
     key: number;
     label: string;
 }
 
-// Props recebidas do controller
 const props = defineProps<{
-    process: ProcessDetails; // Usa a interface ProcessDetails atualizada
+    process: ProcessDetails;
     availableStages?: StageOption[];
     availablePriorities?: SelectOption[];
     availableStatuses?: SelectOption[];
     users?: UserReference[];
-    paymentTypes?: Array<{ key: string; label: string }>; // Array para mapear chaves de tipo de pagamento para rótulos
+    paymentTypes?: Array<{ value: string; label: string }>;
+    paymentStatuses?: Array<{ key: string; label: string }>;
+    paymentMethods: string[];
 }>();
 
-const activeMainTab = ref<'tasks' | 'documents' | 'history' | 'payments'>('tasks');
+const activeMainTab = ref<'tasks' | 'payments' | 'documents' | 'history'>('tasks');
 const showNewAnnotationForm = ref(false);
 const showDeleteProcessDialog = ref(false);
 const processDeleteForm = useForm({});
@@ -140,12 +130,78 @@ const showDeleteTaskDialog = ref(false);
 const taskToDelete = ref<ProcessTask | null>(null);
 const taskDeleteForm = useForm({});
 
+const showAddFeeDialog = ref(false);
+const feeForm = useForm<FeeFormData>({
+    description: '',
+    amount: null,
+    fee_date: new Date().toISOString().split('T')[0],
+    payment_method: null,
+    payment_date: null,
+    is_paid: false,
+    notes: '',
+});
+
+const showEditFeeDialog = ref(false);
+const editingFee = ref<PaymentData | null>(null);
+const editFeeForm = useForm<FeeFormData>({
+    description: '',
+    amount: null,
+    fee_date: '',
+    payment_method: null,
+    payment_date: null,
+    is_paid: false,
+    notes: '',
+});
+
+watch(() => feeForm.is_paid, (isPaid) => {
+    if (isPaid) {
+        if (!feeForm.payment_date) {
+            feeForm.payment_date = new Date().toISOString().split('T')[0];
+        }
+    } else {
+        feeForm.payment_date = null;
+        feeForm.clearErrors('payment_date');
+    }
+});
+
+watch(() => editFeeForm.is_paid, (isPaid) => {
+    if (isPaid) {
+        if (!editFeeForm.payment_date) {
+            editFeeForm.payment_date = new Date().toISOString().split('T')[0];
+        }
+    } else {
+        editFeeForm.payment_date = null;
+        editFeeForm.clearErrors('payment_date');
+    }
+});
+
 const taskStatusOptions: SelectOption[] = [
     { key: 'Pendente', label: 'Pendente' },
     { key: 'Em Andamento', label: 'Em Andamento' },
     { key: 'Concluída', label: 'Concluída' },
     { key: 'Cancelada', label: 'Cancelada' },
 ];
+
+const RGlobal = (window as any).route;
+const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
+    if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
+    console.warn(`Helper de rota Ziggy não encontrado para a rota: ${name}. Usando fallback.`);
+    let url = `/${name?.replace(/\./g, '/') || ''}`;
+    if (params) {
+        if (typeof params === 'object' && params !== null && !Array.isArray(params)) {
+            Object.keys(params).forEach(key => {
+                const paramPlaceholder = `:${key}`; const paramPlaceholderBraces = `{${key}}`;
+                if (url.includes(paramPlaceholder)) { url = url.replace(paramPlaceholder, String(params[key])); }
+                else if (url.includes(paramPlaceholderBraces)) { url = url.replace(paramPlaceholderBraces, String(params[key])); }
+                else if (Object.keys(params).length === 1 && !url.includes(String(params[key]))) {
+                    const paramValueString = String(params[key]);
+                    if (url.split('/').pop() !== paramValueString) { url += `/${paramValueString}`; }
+                }
+            });
+        } else if (typeof params !== 'object') { url += `/${params}`; }
+    }
+    return url;
+};
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Painel', href: routeHelper('dashboard') },
@@ -164,19 +220,42 @@ const formatDate = (dateString: string | null | undefined, includeTime = false):
     } catch (e) { console.error("Erro ao formatar data:", dateString, e); return dateString; }
 };
 
+const formatDateForInput = (dateString: string | null | undefined): string => {
+    if (!dateString) return '';
+    try {
+        const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
+         if (isNaN(date.getTime())) {
+            const parts = dateString.split('/');
+            if (parts.length === 3) {
+                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            return '';
+        }
+        return date.toISOString().split('T')[0];
+    } catch (e) {
+        console.error("Erro ao formatar data para input:", dateString, e);
+        return '';
+    }
+};
+
 const formatCurrency = (value: number | string | null | undefined): string => {
     const numValue = Number(value);
     if (value === null || typeof value === 'undefined' || isNaN(numValue)) return 'N/A';
     return numValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-// Função para obter o rótulo do tipo de pagamento a partir da chave
 const getPaymentTypeLabel = (typeKey: string | null): string => {
     if (!typeKey) return 'N/A';
-    const foundType = props.paymentTypes?.find(pt => pt.key === typeKey);
+    const foundType = props.paymentTypes?.find(pt => pt.value === typeKey);
     if (foundType) return foundType.label;
-    // Fallback: capitaliza a chave se o rótulo não for encontrado
-    return typeKey.charAt(0).toUpperCase() + typeKey.slice(1);
+    return typeKey.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
+
+const getPaymentStatusLabel = (statusKey: string | null): string => {
+    if (!statusKey) return 'N/A';
+    const foundStatus = props.paymentStatuses?.find(s => s.key === statusKey);
+    if (foundStatus) return foundStatus.label;
+    return statusKey.charAt(0).toUpperCase() + statusKey.slice(1);
 };
 
 const priorityLabelForDisplay = computed(() => props.process.priority_label || props.process.priority || 'N/A');
@@ -294,7 +373,7 @@ function openEditTaskModal(task: ProcessTask) {
 function submitProcessTask() {
     const dataToSubmit = {
         ...taskForm.data(),
-        responsible_user_id: taskForm.responsible_user_id === 'null' ? null : taskForm.responsible_user_id,
+        responsible_user_id: taskForm.responsible_user_id === 'null' || taskForm.responsible_user_id === '' ? null : taskForm.responsible_user_id,
     };
 
     if (editingTask.value) {
@@ -339,13 +418,116 @@ function submitDeleteTask() {
     });
 }
 
+function openAddFeeDialog() {
+    feeForm.reset();
+    feeForm.fee_date = new Date().toISOString().split('T')[0];
+    feeForm.is_paid = false;
+    feeForm.payment_date = null;
+    showAddFeeDialog.value = true;
+}
+
+function submitFee() {
+    const dataToSubmit = {
+        ...feeForm.data(),
+        payment_date: feeForm.is_paid ? feeForm.payment_date : null,
+    };
+
+    feeForm.transform(() => dataToSubmit).post(routeHelper('processes.fees.store', props.process.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showAddFeeDialog.value = false;
+            feeForm.reset();
+            router.reload({ only: ['process'] });
+        },
+        onError: (errors) => {
+            console.error('Erro ao adicionar honorários:', errors);
+        }
+    });
+}
+
+function openEditFeeDialog(fee: PaymentData) {
+    // console.log('Abrindo modal de edição para o honorário (fee.status):', fee.status);
+    editingFee.value = fee;
+
+    const dbNotes = fee.notes || '';
+    const separator = "\nObservações Adicionais: ";
+    const separatorIndex = dbNotes.indexOf(separator);
+
+    if (separatorIndex !== -1) {
+        editFeeForm.description = dbNotes.substring(0, separatorIndex);
+        editFeeForm.notes = dbNotes.substring(separatorIndex + separator.length);
+    } else {
+        editFeeForm.description = dbNotes;
+        editFeeForm.notes = '';
+    }
+
+    editFeeForm.amount = fee.total_amount;
+    editFeeForm.fee_date = fee.first_installment_due_date ? formatDateForInput(fee.first_installment_due_date) : '';
+    editFeeForm.payment_method = fee.payment_method;
+    
+    editFeeForm.is_paid = fee.status === 'paid';
+    // console.log('editFeeForm.is_paid inicializado como:', editFeeForm.is_paid);
+    
+    if (editFeeForm.is_paid && fee.down_payment_date) {
+        editFeeForm.payment_date = formatDateForInput(fee.down_payment_date);
+    } else if (editFeeForm.is_paid && !fee.down_payment_date) {
+        // Se está pago mas não tem data no DB, preenche com a data atual.
+        // O watcher também faz isso, mas é bom ter aqui para o estado inicial.
+        editFeeForm.payment_date = new Date().toISOString().split('T')[0];
+    } else {
+        editFeeForm.payment_date = null;
+    }
+    // console.log('editFeeForm.payment_date inicializado como:', editFeeForm.payment_date);
+
+    editFeeForm.clearErrors();
+    showEditFeeDialog.value = true;
+}
+
+function submitEditFee() {
+    if (!editingFee.value || !editingFee.value.id) {
+        console.error('Nenhum honorário selecionado para edição ou ID do honorário ausente.');
+        alert('Erro: Nenhum honorário selecionado para edição.');
+        return;
+    }
+    
+    // console.log('Valor de editFeeForm.is_paid ANTES de construir dataToSubmit:', editFeeForm.is_paid);
+
+    const dataToSubmit = {
+        description: editFeeForm.description,
+        amount: editFeeForm.amount,
+        fee_date: editFeeForm.fee_date,
+        payment_method: editFeeForm.payment_method,
+        is_paid: editFeeForm.is_paid, // Este é o valor da checkbox
+        payment_date: editFeeForm.is_paid && editFeeForm.payment_date ? editFeeForm.payment_date : null,
+        notes: editFeeForm.notes,
+    };
+    
+    // console.log('Dados COMPLETOS a serem enviados para edição:', dataToSubmit);
+
+    router.put(routeHelper('processes.fees.update', { process: props.process.id, fee: editingFee.value!.id }), dataToSubmit, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showEditFeeDialog.value = false;
+            editingFee.value = null;
+            editFeeForm.reset();
+            router.reload({ only: ['process'] });
+            // Adicionar notificação de sucesso
+        },
+        onError: (errors) => {
+            console.error('Erro ao atualizar honorários:', errors);
+            // Erros são tratados por editFeeForm.errors
+        }
+    });
+}
+
+
 const isArchived = computed(() => !!props.process.archived_at);
 
 const totalPaymentsAmount = computed(() => {
     if (!props.process.payments || props.process.payments.length === 0) {
         return null;
     }
-    return props.process.payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+    return props.process.payments.reduce((sum, payment) => sum + (Number(payment.total_amount) || 0), 0);
 });
 
 </script>
@@ -631,7 +813,7 @@ const totalPaymentsAmount = computed(() => {
                                     </div>
                                     <div class="text-right flex-shrink-0 space-y-1">
                                         <Badge :variant="task_item.is_overdue ? 'destructive' : (task_item.status === 'Concluída' ? 'default' : 'outline')"
-                                               class="text-xs whitespace-nowrap">
+                                              class="text-xs whitespace-nowrap">
                                             {{ task_item.is_overdue ? 'Atrasada' : task_item.status }}
                                         </Badge>
                                         <div class="flex space-x-1 justify-end mt-1">
@@ -652,44 +834,86 @@ const totalPaymentsAmount = computed(() => {
                     <div v-if="activeMainTab === 'payments'" class="space-y-4 py-4">
                         <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Pagamentos Registrados</h3>
-                             </div>
+                            <Button variant="outline" size="sm" @click="openAddFeeDialog" :disabled="isArchived">
+                                <HandCoins class="h-4 w-4 mr-2" /> Adicionar Honorários
+                            </Button>
+                        </div>
                         <div v-if="process.payments && process.payments.length > 0" class="space-y-3">
                             <Card v-for="payment_item in process.payments" :key="payment_item.id" class="hover:shadow-md transition-shadow">
-                                {{ payment_item }}
                                 <CardContent class="p-4">
-                                    <div class="flex justify-between items-start">
+                                    <div class="flex justify-between items-start mb-2">
                                         <div>
-                                            <p class="text-lg font-semibold text-indigo-600 dark:text-indigo-400">{{ formatCurrency(payment_item.amount) }}</p>
-                                            <p class="text-sm text-gray-700 dark:text-gray-300">
-                                                Tipo: {{ getPaymentTypeLabel(payment_item.payment_type) }}
+                                            <p class="text-lg font-semibold text-indigo-600 dark:text-indigo-400">{{ formatCurrency(payment_item.total_amount) }}</p>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                                ID Transação: {{ payment_item.id }}
                                             </p>
-                                            <p v-if="payment_item.payment_type === 'parcelado' && payment_item.installments_number" class="text-sm text-gray-700 dark:text-gray-300">
-                                                Parcelas: {{ payment_item.installments_number }}x
-                                            </p>
-                                            <p class="text-sm text-gray-700 dark:text-gray-300">Método: {{ payment_item.payment_method || 'N/A' }}</p>
                                         </div>
-                                        <Badge :variant="payment_item.status === 'paid' ? 'default' : (payment_item.status === 'pending' ? 'secondary' : 'outline')" class="text-xs">
-                                            {{ payment_item.status ? (payment_item.status.charAt(0).toUpperCase() + payment_item.status.slice(1)) : 'N/A' }}
-                                        </Badge>
+                                        <div class="flex items-center space-x-2">
+                                            <Badge :variant="'outline'" 
+                                                   :class="[
+                                                       'text-xs capitalize',
+                                                       payment_item.status === 'paid' ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-700/30 dark:text-green-300 dark:border-green-600' : '',
+                                                       payment_item.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-700/30 dark:text-yellow-300 dark:border-yellow-600' : '',
+                                                       (payment_item.status === 'failed' || payment_item.status === 'refunded') ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-700/30 dark:text-red-300 dark:border-red-600' : '',
+                                                       !(payment_item.status === 'paid' || payment_item.status === 'pending' || payment_item.status === 'failed' || payment_item.status === 'refunded') ? 'border-gray-300 dark:border-gray-600' : ''
+                                                   ]">
+                                                {{ payment_item.status_label || getPaymentStatusLabel(payment_item.status) }}
+                                            </Badge>
+                                            <Button
+                                                v-if="!isArchived"
+                                                variant="ghost"
+                                                size="icon"
+                                                class="h-7 w-7"
+                                                @click="payment_item.payment_type === 'honorario' ? openEditFeeDialog(payment_item) : router.visit(routeHelper('processes.edit', props.process.id) + `?payment_to_edit=${payment_item.id}`)"
+                                                :title="payment_item.payment_type === 'honorario' ? 'Editar Honorário' : 'Editar Detalhes do Caso/Pagamento'"
+                                            >
+                                                <Edit3 class="h-3.5 w-3.5 text-gray-500 hover:text-indigo-600" />
+                                            </Button>
+                                        </div>
                                     </div>
+
                                     <Separator class="my-2" />
-                                    <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                        <p v-if="payment_item.payment_date">Data do Pagamento: {{ formatDate(payment_item.payment_date) }}</p>
-                                        <p v-if="payment_item.notes" class="whitespace-pre-wrap">Observações: {{ payment_item.notes }}</p>
-                                        <p>Registrado em: {{ formatDate(payment_item.created_at, true) }}</p>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
+                                        <p><span class="font-medium">Tipo Original:</span> {{ getPaymentTypeLabel(payment_item.payment_type) }}</p>
+                                        <p><span class="font-medium">Método:</span> {{ payment_item.payment_method || 'N/A' }}</p>
+
+                                        <template v-if="payment_item.down_payment_amount && parseFloat(String(payment_item.down_payment_amount)) > 0 && payment_item.total_amount === payment_item.down_payment_amount && payment_item.payment_type !== 'honorario'">
+                                            <p><span class="font-medium">Este Registro:</span> Entrada</p>
+                                            <p><span class="font-medium">Data da Entrada:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
+                                        </template>
+
+                                        <template v-else-if="payment_item.payment_type === 'honorario'">
+                                            <p><span class="font-medium">Este Registro:</span> Honorário</p>
+                                            <p><span class="font-medium">Data de Vencimento:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
+                                            <p v-if="payment_item.down_payment_date"><span class="font-medium">Data do Pagamento:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
+                                        </template>
+
+                                        <template v-else-if="payment_item.payment_type === 'parcelado' && payment_item.number_of_installments && payment_item.number_of_installments > 0">
+                                            <p><span class="font-medium">Vencimento da Parcela:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
+                                            <p><span class="font-medium">Valor da Parcela:</span> {{ formatCurrency(payment_item.value_of_installment) }}</p>
+                                            <p v-if="payment_item.number_of_installments > 1"><span class="font-medium">Plano Total:</span> {{ payment_item.number_of_installments }} parcelas</p>
+                                        </template>
+
+                                        <template v-else-if="payment_item.payment_type === 'a_vista'">
+                                            <p><span class="font-medium">Tipo do Registro:</span> Pagamento Único à Vista</p>
+                                            <p><span class="font-medium">Data do Pagamento:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
+                                        </template>
                                     </div>
-                                     </CardContent>
+
+                                     <p v-if="payment_item.notes" class="text-xs text-gray-600 dark:text-gray-400 mt-2 whitespace-pre-wrap"><span class="font-medium">Observações:</span> {{ payment_item.notes }}</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">Registrado em: {{ formatDate(payment_item.created_at, true) }}</p>
+                                </CardContent>
                             </Card>
                              <Card class="bg-gray-50 dark:bg-gray-700/50 mt-4">
                                 <CardContent class="p-3 text-right">
-                                    <p class="text-sm font-medium text-gray-700 dark:text-gray-200">Total dos Pagamentos:</p>
+                                    <p class="text-sm font-medium text-gray-700 dark:text-gray-200">Soma dos Pagamentos Listados:</p>
                                     <p class="text-xl font-semibold text-indigo-700 dark:text-indigo-400">{{ formatCurrency(totalPaymentsAmount) }}</p>
                                 </CardContent>
                             </Card>
                         </div>
                         <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum pagamento registrado para este caso.</p>
                     </div>
-
 
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
                          <div class="flex justify-between items-center">
@@ -765,9 +989,8 @@ const totalPaymentsAmount = computed(() => {
                                         <div class="flex-grow min-w-0">
                                             <a :href="doc.url" target="_blank" :download="doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.name }}</a>
                                             <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                                Enviado em: {{ formatDate(doc.uploaded_at) }} {{ doc.size ? `(${doc.size})` : '' }}
-                                            </p>
-                                             <p v-if="doc.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-words">{{ doc.description }}</p>
+                                                Enviado em: {{ formatDate(doc.uploaded_at || doc.created_at) }} {{ doc.size ? `(${(Number(doc.size) / (1024*1024)).toFixed(2)} MB)` : '' }} </p>
+                                            <p v-if="doc.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-words">{{ doc.description }}</p>
                                         </div>
                                     </div>
                                     <div class="flex-shrink-0 space-x-1">
@@ -908,7 +1131,7 @@ const totalPaymentsAmount = computed(() => {
                                     <SelectValue placeholder="Selecionar responsável" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="null">Ninguém</SelectItem>
+                                    <SelectItem :value="null">Ninguém</SelectItem>
                                     <SelectItem v-for="user in props.users" :key="user.id" :value="String(user.id)">
                                         {{ user.name }}
                                     </SelectItem>
@@ -969,6 +1192,161 @@ const totalPaymentsAmount = computed(() => {
             </DialogContent>
         </Dialog>
 
+        <Dialog :open="showAddFeeDialog" @update:open="showAddFeeDialog = $event">
+            <DialogContent class="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Adicionar Honorários ao Caso</DialogTitle>
+                    <DialogDescription>
+                        Preencha os detalhes dos honorários.
+                    </DialogDescription>
+                </DialogHeader>
+                <form @submit.prevent="submitFee" class="space-y-4 mt-4">
+                    <div>
+                        <Label for="feeDescription">Descrição <span class="text-red-500">*</span></Label>
+                        <Input id="feeDescription" v-model="feeForm.description" required />
+                        <div v-if="feeForm.errors.description" class="text-sm text-red-500 mt-1">{{ feeForm.errors.description }}</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="feeAmount">Valor (R$) <span class="text-red-500">*</span></Label>
+                            <Input id="feeAmount" type="number" step="0.01" min="0.01" v-model="feeForm.amount" required />
+                            <div v-if="feeForm.errors.amount" class="text-sm text-red-500 mt-1">{{ feeForm.errors.amount }}</div>
+                        </div>
+                        <div>
+                            <Label for="feeDate">Data de Vencimento <span class="text-red-500">*</span></Label>
+                            <Input id="feeDate" type="date" v-model="feeForm.fee_date" required />
+                            <div v-if="feeForm.errors.fee_date" class="text-sm text-red-500 mt-1">{{ feeForm.errors.fee_date }}</div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="feePaymentMethod">Forma de Pagamento</Label>
+                             <Select v-model="feeForm.payment_method">
+                                <SelectTrigger id="feePaymentMethod">
+                                    <SelectValue placeholder="Selecione a forma" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        <SelectItem :value="null">Não especificado</SelectItem>
+                                        <SelectItem v-for="method in props.paymentMethods" :key="method" :value="method">
+                                            {{ method }}
+                                        </SelectItem>
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                            <div v-if="feeForm.errors.payment_method" class="text-sm text-red-500 mt-1">{{ feeForm.errors.payment_method }}</div>
+                        </div>
+                        <div v-if="feeForm.is_paid">
+                            <Label for="feeActualPaymentDate">Data de Pagamento <span class="text-red-500">*</span></Label>
+                            <Input id="feeActualPaymentDate" type="date" v-model="feeForm.payment_date" :required="feeForm.is_paid" />
+                            <div v-if="feeForm.errors.payment_date" class="text-sm text-red-500 mt-1">{{ feeForm.errors.payment_date }}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 mt-4">
+                        <input type="checkbox" id="is_paid_fee" v-model="feeForm.is_paid" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:ring-offset-gray-800 dark:focus:ring-indigo-600" />
+                        <Label for="is_paid_fee" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            Marcar como Pago?
+                        </Label>
+                    </div>
+                    <div v-if="feeForm.errors.is_paid" class="text-sm text-red-500 mt-1">{{ feeForm.errors.is_paid }}</div>
+
+                    <div>
+                        <Label for="feeNotes">Observações Adicionais</Label>
+                        <Textarea id="feeNotes" v-model="feeForm.notes" rows="3" />
+                        <div v-if="feeForm.errors.notes" class="text-sm text-red-500 mt-1">{{ feeForm.errors.notes }}</div>
+                    </div>
+                    <DialogFooter class="mt-6">
+                        <DialogClose as-child><Button type="button" variant="outline" @click="showAddFeeDialog = false; feeForm.reset(); feeForm.clearErrors();">Cancelar</Button></DialogClose>
+                        <Button type="submit" :disabled="feeForm.processing">
+                            <HandCoins class="mr-2 h-4 w-4" v-if="!feeForm.processing" />
+                             <svg v-if="feeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {{ feeForm.processing ? 'Salvando...' : 'Salvar Honorários' }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showEditFeeDialog" @update:open="showEditFeeDialog = $event">
+            <DialogContent class="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Editar Honorários</DialogTitle>
+                    <DialogDescription>
+                        Modifique os detalhes dos honorários. ID: {{ editingFee?.id }}
+                    </DialogDescription>
+                </DialogHeader>
+                <form @submit.prevent="submitEditFee" class="space-y-4 mt-4">
+                    <div>
+                        <Label for="editFeeDescription">Descrição <span class="text-red-500">*</span></Label>
+                        <Input id="editFeeDescription" v-model="editFeeForm.description" required />
+                        <div v-if="editFeeForm.errors.description" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.description }}</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="editFeeAmount">Valor (R$) <span class="text-red-500">*</span></Label>
+                            <Input id="editFeeAmount" type="number" step="0.01" min="0.01" v-model="editFeeForm.amount" required />
+                            <div v-if="editFeeForm.errors.amount" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.amount }}</div>
+                        </div>
+                        <div>
+                            <Label for="editFeeDate">Data de Vencimento <span class="text-red-500">*</span></Label>
+                            <Input id="editFeeDate" type="date" v-model="editFeeForm.fee_date" required />
+                            <div v-if="editFeeForm.errors.fee_date" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.fee_date }}</div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <Label for="editFeePaymentMethod">Forma de Pagamento</Label>
+                                <Select v-model="editFeeForm.payment_method">
+                                <SelectTrigger id="editFeePaymentMethod">
+                                    <SelectValue placeholder="Selecione a forma" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        <SelectItem :value="null">Não especificado</SelectItem>
+                                        <SelectItem v-for="method in props.paymentMethods" :key="method" :value="method">
+                                            {{ method }}
+                                        </SelectItem>
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                            <div v-if="editFeeForm.errors.payment_method" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.payment_method }}</div>
+                        </div>
+                        <div v-if="editFeeForm.is_paid">
+                            <Label for="editFeeActualPaymentDate">Data de Pagamento <span class="text-red-500">*</span></Label>
+                            <Input id="editFeeActualPaymentDate" type="date" v-model="editFeeForm.payment_date" :required="editFeeForm.is_paid" />
+                            <div v-if="editFeeForm.errors.payment_date" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.payment_date }}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 mt-4">
+                        <input type="checkbox" id="is_paid_edit_fee" v-model="editFeeForm.is_paid" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:ring-offset-gray-800 dark:focus:ring-indigo-600" />
+                        <Label for="is_paid_edit_fee" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            Marcar como Pago?
+                        </Label>
+                    </div>
+                    <div v-if="editFeeForm.errors.is_paid" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.is_paid }}</div>
+
+                    <div>
+                        <Label for="editFeeNotes">Observações Adicionais</Label>
+                        <Textarea id="editFeeNotes" v-model="editFeeForm.notes" rows="3" />
+                        <div v-if="editFeeForm.errors.notes" class="text-sm text-red-500 mt-1">{{ editFeeForm.errors.notes }}</div>
+                    </div>
+                    <DialogFooter class="mt-6">
+                        <DialogClose as-child><Button type="button" variant="outline" @click="showEditFeeDialog = false; editFeeForm.reset(); editingFee = null; editFeeForm.clearErrors();">Cancelar</Button></DialogClose>
+                        <Button type="submit" :disabled="editFeeForm.processing">
+                            <Edit3 class="mr-2 h-4 w-4" v-if="!editFeeForm.processing" />
+                                <svg v-if="editFeeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {{ editFeeForm.processing ? 'Salvando...' : 'Salvar Alterações' }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
     </AppLayout>
 </template>
 

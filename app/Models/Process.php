@@ -32,7 +32,6 @@ class Process extends Model
         'contact_id',
         'priority',
         'status',
-        'due_date',
         'archived_at', // Adicionado para arquivamento lógico
     ];
 
@@ -46,7 +45,6 @@ class Process extends Model
         'stage' => 'integer',
         'responsible_id' => 'string', // ou 'integer' se users.id for int
         'contact_id' => 'string',     // ou 'integer' se contacts.id for int
-        'due_date' => 'date',
         'archived_at' => 'datetime', // Cast para objeto Carbon
     ];
 

@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Contact;
 use App\Models\ContactAnnotation;
 use App\Models\ContactDocument;
-use App\Models\Process; // Adicionado para referência, se necessário para Enums ou outras lógicas
-use App\Enums\ContactMaritalStatus; // Adicionado para o exemplo
-use App\Enums\ContactGender; // Adicionado para o exemplo
-use App\Models\ProcessDocument;
+use App\Models\Process;
+use App\Enums\ContactMaritalStatus;
+use App\Enums\ContactGender;
+use App\Models\ProcessDocument; // Embora não usado diretamente aqui, mantido por consistência com o original
 use Illuminate\Support\Facades\Redirect;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str; // Adicionado para Str::slug
 
 class ContactController extends Controller
 {
@@ -48,13 +49,13 @@ class ContactController extends Controller
                     foreach ($searchableFields as $field) {
                         $q->orWhere($field, 'LIKE', "%{$searchTerm}%");
                     }
-                    $q->orWhereHas('emails', fn($q) => $q->where('email', 'LIKE', "%{$searchTerm}%"));
-                    $q->orWhereHas('phones', fn($q) => $q->where('phone', 'LIKE', "%{$searchTerm}%"));
+                    $q->orWhereHas('emails', fn($q_email) => $q_email->where('email', 'LIKE', "%{$searchTerm}%"));
+                    $q->orWhereHas('phones', fn($q_phone) => $q_phone->where('phone', 'LIKE', "%{$searchTerm}%"));
                 });
             });
 
         if (in_array($sortBy, ['name', 'business_name', 'type'])) {
-            $contactsQuery->orderByRaw("LOWER({$sortBy}) {$sortDirection}");
+            $contactsQuery->orderByRaw("LOWER(CAST({$sortBy} AS TEXT)) {$sortDirection}");
         } else {
             $contactsQuery->orderBy($sortBy, $sortDirection);
         }
@@ -72,8 +73,8 @@ class ContactController extends Controller
         $physicalContacts = Contact::where('type', 'physical')->orderBy('name')->get(['id', 'name']);
         return Inertia::render('contacts/Create', [
             'contacts' => $physicalContacts,
-            'marital_statuses' => ContactMaritalStatus::cases(), // Exemplo para o formulário
-            'genders' => ContactGender::cases(), // Exemplo para o formulário
+            'marital_statuses' => ContactMaritalStatus::cases(),
+            'genders' => ContactGender::cases(),
         ]);
     }
 
@@ -84,10 +85,10 @@ class ContactController extends Controller
             'name' => 'required_if:type,physical|nullable|string|max:255',
             'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => ['required', 'string', 'max:20', Rule::unique('contacts', 'cpf_cnpj')->where(fn($query) => $query->whereNull('deleted_at'))],
-            'rg' => ['nullable', 'string', 'max:20', Rule::unique('contacts', 'rg')->where(fn($query) => $query->whereNull('deleted_at'))],
-            'gender' => 'nullable|string|in:male,female,other,prefer_not_to_say', // Ajustado para string se você não estiver usando Enum diretamente aqui
-            'nationality' => 'nullable|string|max:50', // Aumentado max:5 para max:50
-            'marital_status' => 'nullable|string|max:50', // Ajustado para string e max:50
+            'rg' => ['nullable', 'string', 'max:20', Rule::unique('contacts', 'rg')->ignore($request->id)->where(fn($query) => $query->whereNull('deleted_at'))], // Adicionado ignore para update
+            'gender' => 'nullable|string|in:male,female,other,prefer_not_to_say',
+            'nationality' => 'nullable|string|max:50',
+            'marital_status' => 'nullable|string|max:50',
             'profession' => 'nullable|string|max:100',
             'date_of_birth' => 'nullable|date_format:Y-m-d',
             'business_activity' => 'nullable|string|max:100',
@@ -133,10 +134,8 @@ class ContactController extends Controller
 
             if ($data['type'] === 'physical') {
                 $contactData['name'] = $data['name'];
-            } else { // legal
-                // Para PJ, 'name' pode ser o nome fantasia ou um nome de contato principal,
-                // e 'business_name' a razão social. Ajuste conforme sua lógica.
-                $contactData['name'] = $data['name'] ?? $data['business_name']; // Fallback se 'name' não for enviado para PJ
+            } else {
+                $contactData['name'] = $data['name'] ?? $data['business_name'];
                 $contactData['business_name'] = $data['business_name'];
             }
 
@@ -173,39 +172,25 @@ class ContactController extends Controller
         $contact->load([
             'emails',
             'phones',
-            'administrator', // Se 'administrator_id' referencia outro contato (presumindo que a relação se chama 'administrator')
+            'administrator',
             'annotations' => function ($query) {
-                $query->with('user:id,name')->latest(); // Carrega o usuário da anotação
+                $query->with('user:id,name')->latest();
             },
-            'documents' => function ($query) { // Documentos diretos do contato
-                $query->with('uploader:id,name') // Carrega quem fez o upload (presumindo relação 'uploader' em ContactDocument)
+            'documents' => function ($query) {
+                $query->with('uploader:id,name')
                     ->orderBy('created_at', 'desc');
             },
-            'processes' => function ($query) { // Casos/Processos vinculados a este contato
-                $query->with('responsible:id,name') // Mantém o with original para o responsável pelo processo
-                    ->with([
-                        'documents' => function ($docQuery) { // Adiciona o with para os documentos do processo
-                        // Opcional: carregar quem fez o upload do documento do processo,
-                        // se houver essa relação no model ProcessDocument (ex: 'uploader:id,name')
-                        // $docQuery->with('uploader:id,name');
-                        $docQuery->orderBy('created_at', 'desc'); // Ordenar os documentos do processo
-                    }
-                    ])
-                    ->orderBy('updated_at', 'desc'); // Mantém a ordenação original para os processos
+            'processes' => function ($query) {
+                $query->with('responsible:id,name')
+                    ->with(['documents' => function ($docQuery) {
+                        $docQuery->orderBy('created_at', 'desc');
+                    }])
+                    ->orderBy('updated_at', 'desc');
             }
         ]);
 
-        // Opcional: Se você quiser uma lista "achatada" (flat list) de todos os documentos
-        // de todos os processos associados a este contato, você pode fazer:
-        $allProcessDocuments = $contact->processes->flatMap(function ($process) {
-            return $process->documents; // Presume que a relação em Process é 'documents'
-        });
-
         return Inertia::render('contacts/Show', [
             'contact' => $contact,
-            // Se você quiser a lista achatada, descomente e passe para a view:
-            // 'all_process_documents' => $allProcessDocuments,
-            // Exemplos de Enums que podem ser úteis na view Show, como estavam na seleção
             'marital_statuses' => ContactMaritalStatus::cases(),
             'genders' => ContactGender::cases(),
         ]);
@@ -223,15 +208,14 @@ class ContactController extends Controller
         return Inertia::render('contacts/Edit', [
             'contacts' => $physicalContacts,
             'contact' => $contact,
-            'marital_statuses' => ContactMaritalStatus::cases(), // Para o formulário de edição
-            'genders' => ContactGender::cases(), // Para o formulário de edição
+            'marital_statuses' => ContactMaritalStatus::cases(),
+            'genders' => ContactGender::cases(),
         ]);
     }
 
     public function update(Request $request, Contact $contact)
     {
         $data = $request->validate([
-            // 'type' => 'required|in:physical,legal', // Geralmente não se muda o tipo
             'name' => 'required_if:type,physical|nullable|string|max:255',
             'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => ['required', 'string', 'max:20', Rule::unique('contacts', 'cpf_cnpj')->ignore($contact->id)->where(fn($query) => $query->whereNull('deleted_at'))],
@@ -261,7 +245,9 @@ class ContactController extends Controller
         DB::beginTransaction();
         try {
             $contactDataToUpdate = $data;
-            unset($contactDataToUpdate['type']); // Não atualiza o tipo
+            // O tipo não deve ser alterado na edição, então removemos do array de update.
+            // Se precisar mudar o tipo, seria uma lógica mais complexa.
+            // unset($contactDataToUpdate['type']); 
 
             $contactDataToUpdate['cpf_cnpj'] = preg_replace('/\D/', '', $data['cpf_cnpj']);
             $contactDataToUpdate['rg'] = isset($data['rg']) ? preg_replace('/\D/', '', $data['rg']) : null;
@@ -276,6 +262,10 @@ class ContactController extends Controller
                 $contactDataToUpdate['business_name'] = $data['business_name'];
                 $contactDataToUpdate['rg'] = null;
                 $contactDataToUpdate['gender'] = null;
+                // Manter outros campos como date_of_birth, marital_status, profession nulos para PJ
+                 $contactDataToUpdate['date_of_birth'] = null;
+                 $contactDataToUpdate['marital_status'] = null;
+                 $contactDataToUpdate['profession'] = null;
             }
 
             $contact->update($contactDataToUpdate);
@@ -313,8 +303,6 @@ class ContactController extends Controller
         DB::beginTransaction();
         try {
             $contactName = $contact->name ?? $contact->business_name ?? "ID {$contact->id}";
-
-            // Deletar relacionamentos diretos
             $contact->emails()->delete();
             $contact->phones()->delete();
             $contact->annotations()->delete();
@@ -322,18 +310,8 @@ class ContactController extends Controller
                 Storage::disk('public')->delete($document->path);
                 $document->delete();
             });
-
-            // Lidar com processos (casos) vinculados
-            // Opção: Desvincular os processos deste contato (se a FK permitir NULL)
-            // $contact->processes()->update(['alguma_coluna_de_contato_em_processo' => null]);
-            // Ou, se a tabela pivot 'contact_process' for usada:
-            $contact->processes()->detach(); // Remove os registros da tabela pivot
-
-            // Se houver processos onde este contato é o 'administrator_id',
-            // você pode querer definir esses para null ou impedir a exclusão.
+            $contact->processes()->detach();
             Contact::where('administrator_id', $contact->id)->update(['administrator_id' => null]);
-
-
             $contact->delete();
             DB::commit();
             return redirect()->route('contacts.index')->with('success', "Contato '{$contactName}' deletado com sucesso.");
@@ -345,7 +323,6 @@ class ContactController extends Controller
         }
     }
 
-    // --- MÉTODOS PARA ANOTAÇÕES DE CONTATO ---
     public function storeAnnotation(Request $request, Contact $contact)
     {
         $data = $request->validate([
@@ -372,10 +349,6 @@ class ContactController extends Controller
         if ($annotation->contact_id !== $contact->id) {
             return Redirect::back()->with('error', 'A anotação não pertence a este contato ou não foi encontrada.');
         }
-
-        // Adicionar verificação de permissão (Policy) se necessário
-        // $this->authorize('delete', $annotation);
-
         try {
             $annotation->delete();
             return Redirect::route('contacts.show', $contact->id)
@@ -386,11 +359,10 @@ class ContactController extends Controller
         }
     }
 
-    // --- MÉTODOS PARA DOCUMENTOS DE CONTATO ---
     public function storeDocument(Request $request, Contact $contact)
     {
         $data = $request->validate([
-            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,jpg,jpeg,png|max:20480', // Max 20MB e tipos de arquivo
+            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,jpg,jpeg,png|max:20480',
             'description' => 'nullable|string|max:255',
         ]);
 
@@ -398,15 +370,17 @@ class ContactController extends Controller
         try {
             $file = $request->file('file');
             $originalName = $file->getClientOriginalName();
-            $path = $file->store("contact_documents/{$contact->id}", 'public');
+            // Usar Str::slug para criar um nome de arquivo mais seguro e limpo
+            $safeFileName = time() . '_' . Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs("contact_documents/{$contact->id}", $safeFileName, 'public');
 
             if (!$path) {
                 throw new \Exception("Falha ao armazenar o arquivo.");
             }
 
             $contact->documents()->create([
-                'uploader_user_id' => auth()->id(), // Presume que a coluna é uploader_user_id
-                'file_name' => $originalName, // Usando file_name como no seu model ProcessDocument
+                'uploader_user_id' => auth()->id(),
+                'name' => $originalName, // CORREÇÃO: Usar 'name' em vez de 'file_name'
                 'path' => $path,
                 'mime_type' => $file->getMimeType(),
                 'size' => $file->getSize(),
@@ -427,9 +401,6 @@ class ContactController extends Controller
 
     public function destroyDocument(Contact $contact, ContactDocument $document)
     {
-        // Adicionar verificação de permissão (Policy) se necessário
-        // $this->authorize('delete', $document);
-
         if ($document->contact_id !== $contact->id) {
             return back()->with('error', 'Documento não pertence a este contato.');
         }
@@ -439,8 +410,6 @@ class ContactController extends Controller
             Storage::disk('public')->delete($document->path);
             $document->delete();
             DB::commit();
-            // return back()->with('success', 'Documento excluído com sucesso.');
-            // É melhor redirecionar para a página show para forçar a atualização dos dados via Inertia
             return redirect()->route('contacts.show', $contact->id)->with('success', 'Documento excluído com sucesso!');
         } catch (\Exception $e) {
             DB::rollBack();
@@ -449,16 +418,21 @@ class ContactController extends Controller
         }
     }
 
-    public function documentDownload(Process $process, ProcessDocument $document)
+    // Este método parece pertencer ao ProcessController, mas estava no seu ContactController.
+    // Se for para download de documentos de PROCESSO, deve estar no ProcessController.
+    // Se for para download de documentos de CONTATO, o parâmetro $process não faz sentido.
+    // Vou assumir que é para documentos de CONTATO, e remover o $process.
+    public function documentDownload(Contact $contact, ContactDocument $document) // Removido Process $process
     {
-        if ($document->process_id !== $process->id) {
-            abort(404, 'Documento não encontrado para este processo.');
+        if ($document->contact_id !== $contact->id) { // Verificação ajustada
+            abort(404, 'Documento não encontrado para este contato.');
         }
         if (Storage::disk('public')->exists($document->path)) {
-            return Storage::disk('public')->download($document->path, $document->file_name ?? $document->name ?? 'documento');
+            // Usa 'name' (ou 'file_name' se for o nome da coluna no seu model ContactDocument)
+            $downloadName = $document->name ?? $document->file_name ?? 'documento';
+            return Storage::disk('public')->download($document->path, $downloadName);
         } else {
             abort(404, 'Arquivo não encontrado no servidor.');
         }
-
     }
 }

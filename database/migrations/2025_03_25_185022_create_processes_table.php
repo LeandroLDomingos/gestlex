@@ -44,7 +44,6 @@ return new class extends Migration {
             // Novos campos
             $table->enum('priority', ['low', 'medium', 'high'])->default('medium')->nullable();
             $table->string('status', 50)->nullable()->default('Aberto'); // Ex: Aberto, Em Andamento, Concluído, Cancelado
-            $table->date('due_date')->nullable(); // Data de vencimento do processo
 
             $table->timestamps();
             $table->softDeletes(); // Opcional: para exclusão lógica
@@ -54,7 +53,6 @@ return new class extends Migration {
             $table->index('stage');
             $table->index('priority');
             $table->index('status');
-            $table->index('due_date');
             $table->index('created_at');
         });
     }

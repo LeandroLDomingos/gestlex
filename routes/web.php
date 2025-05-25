@@ -73,6 +73,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/processos/{process}/documentos/{document}/download', [ProcessController::class, 'documentDownload'])
         ->name('process-documents.download');
 
+    Route::post('/processes/{process}/fees', [App\Http\Controllers\ProcessController::class, 'storeFee'])
+        ->name('processes.fees.store');
+    Route::put('/processes/{process}/fees/{fee}', [App\Http\Controllers\ProcessController::class, 'updateFee'])
+        ->name('processes.fees.update');
+    Route::delete('/processes/{process}/fees/{fee}', [App\Http\Controllers\ProcessController::class, 'destroyFee'])
+        ->name('processes.fees.destroy');
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)
