@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Edit, Trash2, PlusCircle, Paperclip, UserCircle2, MessageSquare, History, LinkIcon, UploadCloud, Download } from 'lucide-vue-next';
+import { Edit, Trash2, PlusCircle, Paperclip, UserCircle2, MessageSquare, History, LinkIcon, UploadCloud, Download, BriefcaseIcon } from 'lucide-vue-next';
 
 // Importando os tipos de um ficheiro dedicado
 import type {
@@ -327,6 +327,11 @@ onMounted(() => {
           </p>
         </div>
         <div class="flex space-x-2">
+            <Link :href="route('processes.create', { contact_id: contact.id })">
+                <Button variant="outline" size="sm">
+                    <BriefcaseIcon class="h-4 w-4 mr-2" /> Iniciar Atendimento
+                </Button>
+            </Link>
           <Button @click="editContact" variant="default" size="sm">
             <Edit class="mr-2 h-4 w-4" /> Editar
           </Button>
@@ -370,6 +375,9 @@ onMounted(() => {
                     <p v-else><strong class="font-medium">Telefone:</strong> N/A</p>
                     <p v-if="contact.emails && contact.emails.length > 0"><strong class="font-medium">Email:</strong> {{ contact.emails[0].email }}</p>
                     <p v-else><strong class="font-medium">Email:</strong> N/A</p>
+                    <p v-if="contact.date_of_birth"><strong class="font-medium">Data de nascimento:</strong> {{ formatDate(contact.date_of_birth) }}</p>
+                    <p v-else><strong class="font-medium">Data de nascimento:</strong> N/A</p>
+                    <p v-if="contact.type === 'physical'"><strong class="font-medium">Gênero:</strong> {{ contact.gender_label || 'N/A' }}</p>
                 </CardContent>
             </Card>
 
