@@ -11,20 +11,27 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('processes', function (Blueprint $table) {
-            $table->uuid('id')->primary();
+            $table->uuid('id')->primary(); // Chave primária da tabela processes é UUID
             $table->string('title', 255);
             $table->string('origin', 255)->nullable();
             $table->text('description')->nullable();
 
-            // Chave estrangeira para o usuário responsável
-            $table->uuid('responsible_id')->nullable(); // Pode ser nulo se um processo puder não ter responsável inicialmente
-            $table->foreign('responsible_id')
-                  ->references('id')
-                  ->on('users')
-                  ->onDelete('set null'); // Ou 'cascade' se preferir deletar processos se o usuário for deletado, ou 'restrict'
+            // --- INÍCIO DA CORREÇÃO PARA responsible_id ---
+            // Chave estrangeira para o usuário responsável.
+            // Assumindo que a tabela 'users' usa a chave primária padrão do Laravel (BIGINT).
+            // Use foreignId para criar uma coluna BIGINT UNSIGNED compatível.
+            $table->foreignId('responsible_id')->nullable()->constrained('users')->onDelete('set null');
+            // A linha acima é um atalho para:
+            // $table->unsignedBigInteger('responsible_id')->nullable();
+            // $table->foreign('responsible_id')
+            //       ->references('id')
+            //       ->on('users')
+            //       ->onDelete('set null');
+            // --- FIM DA CORREÇÃO PARA responsible_id ---
 
             // Chave estrangeira para o contato principal
-            $table->uuid('contact_id'); // Assumindo que um processo sempre tem um contato principal
+            // A tabela 'contacts' usa UUID como chave primária, então 'contact_id' deve ser UUID.
+            $table->uuid('contact_id');
             $table->foreign('contact_id')
                   ->references('id')
                   ->on('contacts')
@@ -37,7 +44,7 @@ return new class extends Migration {
                 'administrative',
                 'judicial',
                 // Adicione outras chaves de workflow aqui se necessário
-            ])->default('prospecting'); // Ou o workflow padrão que fizer mais sentido
+            ])->default('prospecting');
             
             $table->integer('stage')->nullable(); // Armazena a chave numérica do estágio
 

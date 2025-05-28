@@ -11,6 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Este método deve apenas MODIFICAR a tabela 'processes'
         Schema::table('processes', function (Blueprint $table) {
             $table->timestamp('archived_at')->nullable()->after('updated_at'); // Adiciona a coluna após 'updated_at'
             $table->index('archived_at'); // Adiciona um índice para performance em filtros
@@ -22,6 +23,7 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // Este método deve reverter a modificação na tabela 'processes'
         Schema::table('processes', function (Blueprint $table) {
             $table->dropIndex(['archived_at']); // Remove o índice primeiro
             $table->dropColumn('archived_at');

@@ -12,19 +12,27 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('contact_documents', function (Blueprint $table) {
-            $table->uuid('id')->primary(); // Ou $table->id();
+            $table->uuid('id')->primary(); // Chave primária da tabela contact_documents
 
-            $table->uuid('contact_id');
-            $table->foreign('contact_id')->references('id')->on('contacts')->onDelete('cascade');
+            // Chave estrangeira para o contato
+            // Assumindo que 'contacts.id' é UUID, esta definição está correta.
+            $table->foreignUuid('contact_id')->constrained('contacts')->onDelete('cascade');
+            // A linha acima é um atalho para:
+            // $table->uuid('contact_id');
+            // $table->foreign('contact_id')->references('id')->on('contacts')->onDelete('cascade');
 
-            $table->uuid('uploader_user_id')->nullable(); // Ou o tipo de ID do seu usuário
-            $table->foreign('uploader_user_id')->references('id')->on('users')->onDelete('set null');
+            // --- INÍCIO DA CORREÇÃO PARA uploader_user_id ---
+            // Chave estrangeira para o usuário que fez o upload.
+            // Assumindo que a tabela 'users' usa a chave primária padrão do Laravel (BIGINT).
+            // Use foreignId para criar uma coluna BIGINT UNSIGNED compatível.
+            $table->foreignId('uploader_user_id')->nullable()->constrained('users')->onDelete('set null');
+            // --- FIM DA CORREÇÃO PARA uploader_user_id ---
 
             $table->string('name'); // Nome original do arquivo ou um nome descritivo
             $table->string('path'); // Caminho para o arquivo no storage (ex: 'contact_documents/arquivo.pdf')
-            $table->string('mime_type')->nullable();
+            $table->string('mime_type')->nullable(); // Ex: 'application/pdf', 'image/jpeg'
             $table->unsignedBigInteger('size')->nullable(); // Tamanho do arquivo em bytes
-            $table->text('description')->nullable();
+            $table->text('description')->nullable(); // Descrição adicional sobre o documento
             $table->timestamps();
         });
     }

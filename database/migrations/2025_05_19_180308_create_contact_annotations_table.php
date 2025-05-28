@@ -12,18 +12,21 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('contact_annotations', function (Blueprint $table) {
-            $table->uuid('id')->primary(); // Ou $table->id(); se preferir IDs auto-incrementais
+            $table->uuid('id')->primary(); // Chave primária da tabela contact_annotations
 
             // Chave estrangeira para o contato
-            // Assumindo que sua tabela 'contacts' usa UUIDs para 'id'.
-            // Se 'contacts.id' for BIGINT, use $table->foreignId('contact_id')
-            $table->uuid('contact_id');
-            $table->foreign('contact_id')->references('id')->on('contacts')->onDelete('cascade');
+            // Assumindo que 'contacts.id' é UUID, esta definição está correta.
+            $table->foreignUuid('contact_id')->constrained('contacts')->onDelete('cascade');
+            // A linha acima é um atalho para:
+            // $table->uuid('contact_id');
+            // $table->foreign('contact_id')->references('id')->on('contacts')->onDelete('cascade');
             
-            // Chave estrangeira para o usuário que criou a anotação (opcional)
-            // Assumindo que sua tabela 'users' usa UUIDs para 'id'. Se for BIGINT, use foreignId.
-            $table->uuid('user_id')->nullable(); // Ou o tipo de ID do seu usuário
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
+            // --- INÍCIO DA CORREÇÃO PARA user_id ---
+            // Chave estrangeira para o usuário que criou a anotação.
+            // Assumindo que a tabela 'users' usa a chave primária padrão do Laravel (BIGINT).
+            // Use foreignId para criar uma coluna BIGINT UNSIGNED compatível.
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null');
+            // --- FIM DA CORREÇÃO PARA user_id ---
             
             $table->text('content');
             $table->timestamps();

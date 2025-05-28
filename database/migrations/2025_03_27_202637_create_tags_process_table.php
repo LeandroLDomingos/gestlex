@@ -12,11 +12,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('tags_process', function (Blueprint $table) {
-            $table->bigIncrements('id');
-            $table->uuid('process_id');
-            $table->string('name');
+            $table->bigIncrements('id'); // Chave primária da tabela tags_process
+
+            // Chave estrangeira para processes.
+            // A tabela 'processes' usa UUID como chave primária.
+            $table->uuid('process_id'); // Correto, pois processes.id é UUID
+
+            $table->string('name'); // Nome da tag
             $table->timestamps();
 
+            // Definição da chave estrangeira
             $table->foreign('process_id')
                   ->references('id')->on('processes')
                   ->onDelete('cascade');
