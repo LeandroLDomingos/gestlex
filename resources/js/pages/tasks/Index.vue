@@ -9,9 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AlertTriangle, CalendarDays, CheckCircle2, User, Briefcase, LinkIcon, GripVertical, PlusCircle, Trash2, Edit2, Filter as FilterIcon, SlidersHorizontal, X } from 'lucide-vue-next';
+import { AlertTriangle, CalendarDays, CheckCircle2, User, Briefcase, LinkIcon, GripVertical, PlusCircle, Trash2, Edit2, Filter as FilterIcon, SlidersHorizontal, X, ListChecks } from 'lucide-vue-next';
 import draggable from 'vuedraggable';
 
 import type { Task, User as TaskUser, Process as TaskProcess, Contact as TaskContactType, BreadcrumbItem, TaskStatus, TaskPriority } from '@/types';
@@ -28,7 +28,7 @@ interface ContactFilterOption {
 }
 
 interface TasksIndexProps {
-    tasks: Task[];
+    tasks: Task[]; // Certifique-se que Task inclui created_at e updated_at
     taskStatuses: Record<TaskStatus, string>;
     taskPriorities: Record<TaskPriority, string>;
     users: TaskUser[];
@@ -73,7 +73,6 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Quadro de Tarefas', href: route('tasks.index') },
 ];
 
-// --- Formulário de Nova Tarefa ---
 const showNewTaskDialog = ref(false);
 const taskForm = useForm({
     title: '',
@@ -88,11 +87,10 @@ const taskForm = useForm({
     link_type: 'none' as 'none' | 'process' | 'contact',
 });
 
-// --- Formulário de Edição de Tarefa ---
 const showEditTaskDialog = ref(false);
 const taskToEdit = ref<Task | null>(null);
 const editTaskForm = useForm({
-    id: '' as string | number, // Guardar o ID da tarefa a ser editada
+    id: '' as string | number,
     title: '',
     description: '',
     due_date: null as string | null,
@@ -137,9 +135,9 @@ function updateLocalKanbanColumns(tasksFromProps: Task[]) {
         if (columnIndex !== -1) {
             newColumns[columnIndex].tasks.push({...task});
         } else {
-            let otherColumn = newColumns.find(col => col.id === ('outros_status' as TaskStatus));
+            let otherColumn = newColumns.find(col => col.id === ('outros_status_fallback' as TaskStatus));
             if (!otherColumn) {
-                otherColumn = { id: 'outros_status' as TaskStatus, title: 'Outros Status', tasks: [] };
+                otherColumn = { id: 'outros_status_fallback' as TaskStatus, title: 'Outros Status', tasks: [] };
                 newColumns.push(otherColumn);
             }
             otherColumn.tasks.push({...task});
@@ -155,7 +153,9 @@ watch(() => props.tasks, (newTasks) => {
 
 function submitNewTask() {
     let targetRoute = route('tasks.store.general');
-    if (taskForm.link_type === 'contact' && taskForm.contact_id) {
+    if (taskForm.link_type === 'process' && taskForm.process_id) {
+        targetRoute = route('processes.tasks.store', { process: taskForm.process_id });
+    } else if (taskForm.link_type === 'contact' && taskForm.contact_id) {
         targetRoute = route('contacts.tasks.store', { contact: taskForm.contact_id });
     }
 
@@ -189,11 +189,11 @@ function submitNewTask() {
 }
 
 function openEditTaskDialog(task: Task) {
-    taskToEdit.value = task; // Guarda a tarefa original para referência, se necessário
+    taskToEdit.value = task;
     editTaskForm.id = task.id;
     editTaskForm.title = task.title;
     editTaskForm.description = task.description || '';
-    editTaskForm.due_date = task.due_date || null;
+    editTaskForm.due_date = task.due_date ? task.due_date.substring(0,10) : null;
     editTaskForm.priority = task.priority;
     editTaskForm.status = task.status;
     editTaskForm.responsible_user_id = task.responsible_user_id || null;
@@ -213,7 +213,7 @@ function openEditTaskDialog(task: Task) {
         editTaskForm.contact_id = null;
     }
     
-    editTaskForm.clearErrors(); // Limpa erros de validação anteriores
+    editTaskForm.clearErrors();
     showEditTaskDialog.value = true;
 }
 
@@ -232,34 +232,49 @@ function submitEditTask() {
             process_id: data.link_type === 'process' ? data.process_id : null,
             contact_id: data.link_type === 'contact' ? data.contact_id : null,
         };
-        // Não enviar link_type para o backend
         return payload;
-    }).put(route('tasks.update', editTaskForm.id), { // Usa o ID guardado no form
+    }).put(route('tasks.update', editTaskForm.id), {
         preserveScroll: true,
         onSuccess: () => {
             showEditTaskDialog.value = false;
             editTaskForm.reset();
             taskToEdit.value = null;
-            // A prop 'tasks' deve ser recarregada pelo Inertia, acionando o watch
         },
         onError: (errors) => {
             console.error("Erro ao atualizar tarefa:", errors);
         },
         onFinish: () => {
-            editTaskForm.transform(data => data); // Reseta a transformação
+            editTaskForm.transform(data => data);
         }
     });
 }
 
 
 function onDragEnd(event: any) {
-    const { item, to } = event;
+    const { item, to, newIndex } = event;
     const taskId = item.dataset.taskId;
     const newStatus = to.dataset.statusId as TaskStatus | undefined;
     
     const originalTask = props.tasks.find(t => String(t.id) === String(taskId));
 
     if (originalTask && newStatus && originalTask.status !== newStatus) {
+        const taskIndexInOldColumn = localKanbanColumns.value
+            .find(col => col.id === originalTask.status)?.tasks
+            .findIndex(t => String(t.id) === String(taskId));
+        
+        if (taskIndexInOldColumn !== -1 && taskIndexInOldColumn !== undefined) {
+            const oldColumn = localKanbanColumns.value.find(col => col.id === originalTask.status);
+            if (oldColumn) {
+                const [movedTask] = oldColumn.tasks.splice(taskIndexInOldColumn, 1);
+                if (movedTask) {
+                    movedTask.status = newStatus;
+                    const newColumn = localKanbanColumns.value.find(col => col.id === newStatus);
+                    if (newColumn) {
+                        newColumn.tasks.splice(newIndex !== undefined ? newIndex : newColumn.tasks.length, 0, movedTask);
+                    }
+                }
+            }
+        }
         updateTaskStatusOnBackend(originalTask, newStatus);
     }
 }
@@ -267,16 +282,21 @@ function onDragEnd(event: any) {
 function updateTaskStatusOnBackend(task: Task, newStatus: TaskStatus) {
     router.put(route('tasks.update', task.id), {
         status: newStatus,
-        // Enviar apenas o status para esta atualização específica de drag-and-drop
-        // Se quiser enviar outros campos, eles devem ser incluídos aqui.
-        // Para manter simples, o TaskController@update deve tratar `sometimes` para outros campos.
+        // Envia apenas o status para manter outros campos intactos
+        // Certifique-se que o TaskController@update usa 'sometimes' para outros campos
+        title: task.title, // Reenviar outros campos para evitar que sejam nulificados se a validação do backend os exigir
+        priority: task.priority,
+        // Adicione outros campos aqui se a validação do backend for 'required' em vez de 'sometimes'
     }, {
         preserveScroll: true,
         preserveState: (page) => Object.keys(page.props.errors).length > 0,
-        onSuccess: () => {},
+        onSuccess: () => {
+            // Sucesso - a UI já foi atualizada otimisticamente
+        },
         onError: (errors) => {
             console.error(`Erro ao atualizar status da tarefa ${task.id}:`, errors);
-            router.reload({ only: ['tasks'], preserveScroll: true });
+            // Reverte a mudança otimista se houver erro
+            router.reload({ only: ['tasks'], preserveScroll: true }); 
         }
     });
 }
@@ -286,8 +306,15 @@ function formatDate(dateString?: string | null, options?: Intl.DateTimeFormatOpt
     try {
         const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
         if (isNaN(date.getTime())) return dateString;
-        const defaultOptions: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' };
-        return date.toLocaleDateString('pt-BR', { ...defaultOptions, ...options });
+        
+        const defaultOptions: Intl.DateTimeFormatOptions = { 
+            day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' 
+        };
+        
+        // Mescla com opções passadas, dando prioridade às opções passadas
+        const finalOptions = { ...defaultOptions, ...options };
+
+        return date.toLocaleDateString('pt-BR', finalOptions);
     } catch (e) { return dateString; }
 }
 
@@ -307,22 +334,14 @@ const filterDueDateTo = ref(props.filters.due_date_to || null);
 const showAdvancedFilters = ref(false);
 
 function applyFilters() {
-    const queryParams: Record<string, string | number | undefined> = {};
-    if (filterResponsibleId.value && filterResponsibleId.value !== 'null') {
-        queryParams.responsible_user_id = filterResponsibleId.value;
-    }
-    if (filterStatus.value && filterStatus.value !== 'null') {
-        queryParams.status = filterStatus.value;
-    }
-    if (filterContactId.value && filterContactId.value !== 'null') {
-        queryParams.contact_id = filterContactId.value;
-    }
-    if (filterDueDateFrom.value) {
-        queryParams.due_date_from = filterDueDateFrom.value;
-    }
-    if (filterDueDateTo.value) {
-        queryParams.due_date_to = filterDueDateTo.value;
-    }
+    const queryParams: Record<string, string | number | undefined | null> = {
+        responsible_user_id: filterResponsibleId.value === 'null' ? null : filterResponsibleId.value,
+        status: filterStatus.value === 'null' ? null : filterStatus.value,
+        contact_id: filterContactId.value === 'null' ? null : filterContactId.value,
+        due_date_from: filterDueDateFrom.value || undefined,
+        due_date_to: filterDueDateTo.value || undefined,
+    };
+    Object.keys(queryParams).forEach(key => (queryParams[key as keyof typeof queryParams] == null) && delete queryParams[key as keyof typeof queryParams]);
 
     router.get(route('tasks.index'), queryParams, {
         preserveState: true,
@@ -368,13 +387,13 @@ onMounted(() => {
     if (contactIdParam) {
         taskForm.link_type = 'contact';
         taskForm.contact_id = contactIdParam;
-        taskForm.process_id = null;
     } else if (processIdParam) {
         taskForm.link_type = 'process';
         taskForm.process_id = processIdParam;
-        taskForm.contact_id = null;
     }
 
+    filterResponsibleId.value = props.filters.responsible_user_id ? String(props.filters.responsible_user_id) : null;
+    filterStatus.value = props.filters.status || null;
     filterContactId.value = props.filters.contact_id ? String(props.filters.contact_id) : null;
     filterDueDateFrom.value = props.filters.due_date_from || null;
     filterDueDateTo.value = props.filters.due_date_to || null;
@@ -398,7 +417,7 @@ onMounted(() => {
                             <SelectValue placeholder="Responsável" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="null">Todos Responsáveis</SelectItem>
+                            <SelectItem :value="null">Todos Responsáveis</SelectItem>
                             <SelectItem v-for="user in users" :key="user.id" :value="String(user.id)">{{ user.name }}</SelectItem>
                         </SelectContent>
                     </Select>
@@ -407,7 +426,7 @@ onMounted(() => {
                             <SelectValue placeholder="Status" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="null">Todos Status</SelectItem>
+                            <SelectItem :value="null">Todos Status</SelectItem>
                             <SelectItem v-for="(label, key) in taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
                         </SelectContent>
                     </Select>
@@ -416,13 +435,13 @@ onMounted(() => {
                         <PopoverTrigger as-child>
                             <Button variant="outline" size="sm" class="h-9 text-xs">
                                 <SlidersHorizontal class="h-3.5 w-3.5 mr-1.5" /> Filtros Avançados
-                                 <span v-if="filterContactId || filterDueDateFrom || filterDueDateTo" class="ml-2 h-2 w-2 rounded-full bg-sky-500 animate-pulse"></span>
+                                <span v-if="filterContactId || filterDueDateFrom || filterDueDateTo" class="ml-2 h-2 w-2 rounded-full bg-sky-500 animate-pulse"></span>
                             </Button>
                         </PopoverTrigger>
                         <PopoverContent class="w-80 p-4 space-y-3" align="end">
                             <div class="space-y-1">
-                                 <h4 class="font-medium leading-none text-sm">Filtros Adicionais</h4>
-                                 <p class="text-xs text-muted-foreground">
+                                <h4 class="font-medium leading-none text-sm">Filtros Adicionais</h4>
+                                <p class="text-xs text-muted-foreground">
                                     Refine sua busca por tarefas.
                                 </p>
                             </div>
@@ -435,7 +454,7 @@ onMounted(() => {
                                             <SelectValue placeholder="Todos Contatos" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="null">Todos Contatos</SelectItem>
+                                            <SelectItem :value="null">Todos Contatos</SelectItem>
                                             <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="String(contact_item_option.id)">
                                                 {{ contact_item_option.display_name }}
                                             </SelectItem>
@@ -513,22 +532,33 @@ onMounted(() => {
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
                                             <span class="truncate">{{ task.responsibleUser.name }}</span>
                                         </div>
-                                         <div v-else-if="task.responsibles && task.responsibles.length > 0" class="flex items-center" :title="`Responsáveis: ${task.responsibles.map(r => r.name).join(', ')}`">
+                                        <div v-else-if="task.responsibles && task.responsibles.length > 0" class="flex items-center" :title="`Responsáveis: ${task.responsibles.map(r => r.name).join(', ')}`">
                                             <User class="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
                                             <span class="truncate">{{ task.responsibles.map(r => r.name).join(', ') }}</span>
                                         </div>
-                                        <div v-if="task.process" class="flex items-center mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
-                                            <Briefcase class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-blue-500" />
-                                            <Link :href="route('processes.show', task.process.id)" class="text-blue-600 hover:underline dark:text-blue-400 truncate" :title="task.process.title">
-                                                Caso: {{ task.process.title }}
-                                            </Link>
+                                        <div v-if="task.updated_at && task.created_at && task.updated_at !== task.created_at" 
+                                             class="flex items-center mt-1 pt-1 border-t border-gray-200 dark:border-gray-600" 
+                                             :title="`Criado em: ${formatDate(task.created_at, {hour: '2-digit', minute: '2-digit'})}`">
+                                            <Edit2 class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-gray-400 dark:text-gray-500"/> 
+                                            <span>Editado: {{ formatDate(task.updated_at, {hour: '2-digit', minute: '2-digit'}) }}</span>
                                         </div>
-                                        <div v-if="task.contact" class="flex items-center mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
-                                            <LinkIcon class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500" />
-                                            <Link :href="route('contacts.show', task.contact.id)" class="text-green-600 hover:underline dark:text-green-400 truncate" :title="task.contact.name || task.contact.business_name">
-                                                Contato: {{ task.contact.name || task.contact.business_name }}
-                                            </Link>
+                                        <div v-else-if="task.created_at" 
+                                             class="flex items-center mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
+                                            <ListChecks class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-gray-400 dark:text-gray-500"/>
+                                            <span>Criado: {{ formatDate(task.created_at, {hour: '2-digit', minute: '2-digit'}) }}</span>
                                         </div>
+                                    </div>
+                                     <div v-if="task.process" class="flex items-center mt-1.5 pt-1.5 border-t border-gray-200 dark:border-gray-600">
+                                        <Briefcase class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-blue-500" />
+                                        <Link :href="route('processes.show', task.process.id)" class="text-blue-600 hover:underline dark:text-blue-400 truncate" :title="task.process.title">
+                                            Caso: {{ task.process.title }}
+                                        </Link>
+                                    </div>
+                                    <div v-if="task.contact" class="flex items-center mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
+                                        <LinkIcon class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500" />
+                                        <Link :href="route('contacts.show', task.contact.id)" class="text-green-600 hover:underline dark:text-green-400 truncate" :title="task.contact.name || task.contact.business_name">
+                                            Contato: {{ task.contact.name || task.contact.business_name }}
+                                        </Link>
                                     </div>
                                     <div class="mt-2 flex justify-end space-x-1">
                                         <Button @click="openEditTaskDialog(task)" variant="ghost" size="icon" class="h-7 w-7" title="Editar Tarefa">
@@ -578,7 +608,10 @@ onMounted(() => {
                             <Select v-model="taskForm.priority" required>
                                 <SelectTrigger id="newTaskPriority"><SelectValue placeholder="Selecione" /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
+                                    <SelectGroup>
+                                        <SelectLabel>Prioridades</SelectLabel>
+                                        <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
+                                    </SelectGroup>
                                 </SelectContent>
                             </Select>
                             <div v-if="taskForm.errors.priority" class="text-xs text-red-500 mt-1">{{ taskForm.errors.priority }}</div>
@@ -589,7 +622,10 @@ onMounted(() => {
                         <Select v-model="taskForm.status" required>
                             <SelectTrigger id="newTaskStatus"><SelectValue placeholder="Selecione" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
+                               <SelectGroup>
+                                    <SelectLabel>Status</SelectLabel>
+                                    <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
+                               </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.status" class="text-xs text-red-500 mt-1">{{ taskForm.errors.status }}</div>
@@ -600,14 +636,17 @@ onMounted(() => {
                         <Select v-model="taskForm.responsible_user_id">
                             <SelectTrigger id="newTaskResponsible"><SelectValue placeholder="Ninguém" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem :value="null">Ninguém</SelectItem>
-                                <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Usuários</SelectLabel>
+                                    <SelectItem :value="null">Ninguém</SelectItem>
+                                    <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.responsible_user_id" class="text-xs text-red-500 mt-1">{{ taskForm.errors.responsible_user_id }}</div>
                     </div>
                     
-                    <div>
+                     <div>
                         <Label class="text-sm">Vincular a:</Label>
                         <div class="mt-1 flex space-x-4">
                             <label class="flex items-center">
@@ -630,8 +669,11 @@ onMounted(() => {
                         <Select v-model="taskForm.process_id">
                             <SelectTrigger id="newTaskProcess"><SelectValue placeholder="Selecione um Processo" /></SelectTrigger>
                             <SelectContent class="max-h-60">
-                                <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Processos</SelectLabel>
+                                    <SelectItem :value="null">Nenhum</SelectItem>
+                                    <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.process_id" class="text-xs text-red-500 mt-1">{{ taskForm.errors.process_id }}</div>
@@ -642,8 +684,11 @@ onMounted(() => {
                         <Select v-model="taskForm.contact_id">
                             <SelectTrigger id="newTaskContact"><SelectValue placeholder="Selecione um Contato" /></SelectTrigger>
                             <SelectContent class="max-h-60">
-                                <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Contatos</SelectLabel>
+                                    <SelectItem :value="null">Nenhum</SelectItem>
+                                    <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="taskForm.errors.contact_id" class="text-xs text-red-500 mt-1">{{ taskForm.errors.contact_id }}</div>
@@ -691,7 +736,10 @@ onMounted(() => {
                             <Select v-model="editTaskForm.priority" required>
                                 <SelectTrigger id="editTaskPriority"><SelectValue placeholder="Selecione" /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
+                                     <SelectGroup>
+                                        <SelectLabel>Prioridades</SelectLabel>
+                                        <SelectItem v-for="(label, key) in props.taskPriorities" :key="key" :value="key">{{ label }}</SelectItem>
+                                     </SelectGroup>
                                 </SelectContent>
                             </Select>
                             <div v-if="editTaskForm.errors.priority" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.priority }}</div>
@@ -702,7 +750,10 @@ onMounted(() => {
                         <Select v-model="editTaskForm.status" required>
                             <SelectTrigger id="editTaskStatus"><SelectValue placeholder="Selecione" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Status</SelectLabel>
+                                    <SelectItem v-for="(label, key) in props.taskStatuses" :key="key" :value="key">{{ label }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="editTaskForm.errors.status" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.status }}</div>
@@ -712,8 +763,11 @@ onMounted(() => {
                         <Select v-model="editTaskForm.responsible_user_id">
                             <SelectTrigger id="editTaskResponsible"><SelectValue placeholder="Ninguém" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem :value="null">Ninguém</SelectItem>
-                                <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Usuários</SelectLabel>
+                                    <SelectItem :value="null">Ninguém</SelectItem>
+                                    <SelectItem v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                          <div v-if="editTaskForm.errors.responsible_user_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.responsible_user_id }}</div>
@@ -740,8 +794,11 @@ onMounted(() => {
                         <Select v-model="editTaskForm.process_id">
                             <SelectTrigger id="editTaskProcess"><SelectValue placeholder="Selecione um Processo" /></SelectTrigger>
                             <SelectContent class="max-h-60">
-                                <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                               <SelectGroup>
+                                    <SelectLabel>Processos</SelectLabel>
+                                    <SelectItem :value="null">Nenhum</SelectItem>
+                                    <SelectItem v-for="process_item_option in props.processes" :key="process_item_option.id" :value="process_item_option.id">{{ process_item_option.title }}</SelectItem>
+                               </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="editTaskForm.errors.process_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.process_id }}</div>
@@ -751,8 +808,11 @@ onMounted(() => {
                         <Select v-model="editTaskForm.contact_id">
                             <SelectTrigger id="editTaskContact"><SelectValue placeholder="Selecione um Contato" /></SelectTrigger>
                             <SelectContent class="max-h-60">
-                                <SelectItem :value="null">Nenhum</SelectItem>
-                                <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
+                                <SelectGroup>
+                                    <SelectLabel>Contatos</SelectLabel>
+                                    <SelectItem :value="null">Nenhum</SelectItem>
+                                    <SelectItem v-for="contact_item_option in props.contacts" :key="contact_item_option.id" :value="contact_item_option.id">{{ contact_item_option.display_name }}</SelectItem>
+                                </SelectGroup>
                             </SelectContent>
                         </Select>
                         <div v-if="editTaskForm.errors.contact_id" class="text-xs text-red-500 mt-1">{{ editTaskForm.errors.contact_id }}</div>
@@ -794,13 +854,11 @@ onMounted(() => {
 <style scoped>
 .ghost-card {
     opacity: 0.5;
-    background: #f0f9ff; 
-    border: 1px dashed #0ea5e9;
+    background: #f0f9ff; /* Tailwind blue-50 */
+    border: 1px dashed #0ea5e9; /* Tailwind sky-500 */
 }
 .dragging-card {
-    /* opacity: 0.8; */
-    /* transform: rotate(2deg); */
-    /* box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); */
+    /* Estilos opcionais para o card enquanto está sendo arrastado */
 }
 
 .overflow-y-auto::-webkit-scrollbar {
@@ -810,11 +868,11 @@ onMounted(() => {
     background: transparent;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
+    background-color: #cbd5e1; /* Tailwind gray-300 */
     border-radius: 3px;
 }
 .dark .overflow-y-auto::-webkit-scrollbar-thumb {
-    background-color: #4b5563;
+    background-color: #4b5563; /* Tailwind gray-600 */
 }
 .cursor-grab {
     cursor: grab;

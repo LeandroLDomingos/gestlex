@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { ref, computed, watch, onMounted } from 'vue';
+import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+// import { Badge } from '@/components/ui/badge'; // Não usado neste arquivo
+// import { Separator } from '@/components/ui/separator'; // Não usado neste arquivo
+import { Input } from '@/components/ui/input'; // Assumindo que o Input.vue está em @/components/ui/input/Input.vue
+import { Label } from '@/components/ui/label'; // Assumindo que o Label.vue está em @/components/ui/label/Label.vue
+// import { Checkbox } from '@/components/ui/checkbox'; // Não usado neste arquivo
 import {
     Select,
     SelectContent,
@@ -14,8 +17,9 @@ import {
     SelectTrigger,
     SelectValue,
     SelectGroup,
+    SelectLabel
 } from '@/components/ui/select';
-import { type User, type Contact, type SharedData } from '@/types';
+// import { type User, type Contact, type SharedData } from '@/types'; // SharedData não usado diretamente aqui
 
 // Tipos
 interface BreadcrumbItem {
@@ -23,22 +27,22 @@ interface BreadcrumbItem {
     href: string;
 }
 interface UserSelectItem {
-    id: number | string;
+    id: number | string; // Pode ser string se vier de um select que converte
     name: string;
 }
 interface WorkflowOption {
-    key: string;
+    key: string; // Chave do workflow é string
     label: string;
 }
 interface StageOption {
-    key: number;
+    key: number; // Chave do estágio é number
     label: string;
 }
 interface ContactSelectItem {
-    id: number | string;
-    name: string;
-    business_name?: string;
-    type: 'physical' | 'legal';
+    id: number | string; // Pode ser string se vier de um select
+    name: string | null;
+    business_name?: string | null;
+    type: 'physical' | 'legal' | string; // Tipo pode ser mais genérico se vier de dados não controlados
 }
 
 interface PaymentFormData {
@@ -56,32 +60,32 @@ interface ProcessCreateFormData {
     title: string;
     description: string | null;
     contact_id: string | number | null;
-    responsible_id: string | number | null;
-    workflow: string | null;
-    stage: number | null;
-    priority: string;
+    responsible_id: string | number | null; // Pode ser string do select, converter para number se necessário no backend
+    workflow: string | null; // Chave do workflow é string
+    stage: number | null;    // MUDADO: de stage_id para stage, tipo number
+    priority: string | null;
     origin: string | null;
     status: string | null;
     payment: PaymentFormData;
 }
 
 const props = defineProps<{
-    auth: SharedData['auth'];
+    auth: any; // Definir tipo mais específico se disponível (ex: SharedData['auth'])
     contact_id?: number | string | null;
     contact_name?: string | null;
-    users?: UserSelectItem[];
-    contactsList?: ContactSelectItem[];
-    availableWorkflows?: WorkflowOption[];
-    allStages?: Record<string, StageOption[]>;
+    users: UserSelectItem[];
+    contactsList: ContactSelectItem[];
+    availableWorkflows: WorkflowOption[];
+    allStages: Record<string, StageOption[]>;
     availableStatuses: Array<{ key: string; label: string }>;
     availablePriorities: Array<{ key: string; label: string }>;
-    paymentTypes: Array<{ value: string; label: string }>;
     paymentMethods: string[];
-    errors?: Record<string, string>;
+    paymentTypes: Array<{ value: string; label: string }>;
+    errors?: Record<string, string>; // Erros gerais passados pelo controller
 }>();
 
 const RGlobal = (window as any).route;
-const routeHelper = (name?: string, params?: any, absolute?: boolean): string => {
+const route = (name?: string, params?: any, absolute?: boolean): string => {
     if (typeof RGlobal === 'function') { return RGlobal(name, params, absolute); }
     console.warn(`Helper de rota Ziggy não encontrado para a rota: ${name}. Usando fallback.`);
     let url = `/${name?.replace(/\./g, '/') || ''}`;
@@ -105,12 +109,12 @@ const form = useForm<ProcessCreateFormData>({
     title: '',
     description: '',
     contact_id: props.contact_id || null,
-    responsible_id: props.auth.user ? String(props.auth.user.id) : null,
+    responsible_id: props.auth.user ? props.auth.user.id : null, // Assumindo que auth.user.id é number
     workflow: (props.availableWorkflows && props.availableWorkflows.length > 0) ? props.availableWorkflows[0].key : null,
-    stage: null,
-    priority: (props.availablePriorities && props.availablePriorities.length > 0) ? props.availablePriorities.find(p => p.key === 'medium')?.key || props.availablePriorities[0].key : 'medium',
+    stage: null, // MUDADO: de stage_id para stage, inicializado como null
+    priority: (props.availablePriorities && props.availablePriorities.length > 0) ? props.availablePriorities.find(p => p.key === 'medium')?.key || props.availablePriorities[0].key : null,
     origin: '',
-    status: (props.availableStatuses && props.availableStatuses.length > 0) ? props.availableStatuses.find(s => s.key === 'Aberto')?.key || props.availableStatuses[0].key : 'Aberto',
+    status: (props.availableStatuses && props.availableStatuses.length > 0) ? props.availableStatuses.find(s => s.label.toLowerCase() === 'aberto')?.key || props.availableStatuses[0].key : null,
     payment: {
         total_amount: null,
         advance_payment_amount: null,
@@ -123,52 +127,38 @@ const form = useForm<ProcessCreateFormData>({
     },
 });
 
-const pageTitle = computed(() => {
-    return props.contact_name ? `Novo Caso para ${props.contact_name}` : 'Novo Caso/Processo';
+onMounted(() => {
+    console.log('[onMounted] Props recebidos:', JSON.parse(JSON.stringify(props)));
+    // O watch com immediate:true já terá definido o stage inicial se houver workflow
+    console.log('[onMounted] Estado inicial do formulário (após watch immediate):', JSON.parse(JSON.stringify(form)));
 });
-
-const breadcrumbs = computed<BreadcrumbItem[]>(() => {
-    const crumbs: BreadcrumbItem[] = [{ title: 'Casos', href: routeHelper('processes.index') }];
-    if (props.contact_id && props.contact_name) {
-        crumbs.unshift({ title: 'Contatos', href: routeHelper('contacts.index') });
-        crumbs.splice(1, 0, {
-            title: props.contact_name,
-            href: routeHelper('contacts.show', props.contact_id),
-        });
-    }
-    crumbs.push({ title: 'Novo Caso', href: '#' });
-    return crumbs;
-});
-
-function getContactDisplayForSelect(contact: ContactSelectItem): string {
-    if (contact.type === 'physical') {
-        return contact.name || 'N/A';
-    }
-    let displayName = contact.name || 'Empresa sem Nome Fantasia';
-    if (contact.business_name && contact.business_name !== contact.name) {
-        displayName += ` (${contact.business_name})`;
-    }
-    return `${displayName} (PJ)`;
-}
-
-const usersToSelect = computed(() => props.users || []);
 
 const currentStages = computed<StageOption[]>(() => {
+    // console.log('[computed currentStages] form.workflow:', form.workflow);
     if (form.workflow && props.allStages && props.allStages[form.workflow]) {
-        return props.allStages[form.workflow];
+        const stages = props.allStages[form.workflow];
+        // console.log('[computed currentStages] Estágios encontrados:', JSON.parse(JSON.stringify(stages)));
+        return stages;
     }
+    // console.log('[computed currentStages] Nenhum estágio encontrado.');
     return [];
 });
 
-watch(() => form.workflow, (newWorkflowSelected, oldWorkflowSelected) => {
-    if (newWorkflowSelected !== oldWorkflowSelected) {
+watch(() => form.workflow, (newWorkflow, oldWorkflow) => {
+    // console.log(`[WATCH form.workflow] Mudança de '${oldWorkflow}' para '${newWorkflow}'`);
+    const stagesForNewWorkflow = newWorkflow && props.allStages && props.allStages[newWorkflow] ? props.allStages[newWorkflow] : [];
+    // console.log('[WATCH form.workflow] Estágios para o novo workflow:', JSON.parse(JSON.stringify(stagesForNewWorkflow)));
+
+    if (stagesForNewWorkflow.length > 0) {
+        form.stage = stagesForNewWorkflow[0].key; // key do estágio é number
+        // console.log(`[WATCH form.workflow] form.stage DEFINIDO PARA: ${form.stage} (tipo: ${typeof form.stage})`);
+    } else {
         form.stage = null;
-        form.clearErrors('stage');
-        if (newWorkflowSelected && currentStages.value.length > 0) {
-            form.stage = currentStages.value[0].key;
-        }
+        // console.log('[WATCH form.workflow] form.stage DEFINIDO PARA NULL');
     }
-});
+    form.clearErrors('stage');
+}, { immediate: true });
+
 
 watch(() => form.payment.payment_type, (newType) => {
     form.clearErrors(
@@ -180,14 +170,13 @@ watch(() => form.payment.payment_type, (newType) => {
         form.payment.number_of_installments = null;
         form.payment.first_installment_due_date = null;
     } else if (newType === 'parcelado') {
-        // Se não houver entrada, e o usuário mudar para parcelado,
-        // o campo single_payment_date (que era para pgto à vista) pode ser limpo, se desejado.
-        // Mas, como ele não estará visível para o "pagamento restante parcelado", não é crítico.
-        // if (!(form.payment.advance_payment_amount && parseFloat(String(form.payment.advance_payment_amount)) > 0)) {
-        //     form.payment.single_payment_date = null;
-        // }
+        if (!(form.payment.advance_payment_amount && parseFloat(String(form.payment.advance_payment_amount)) > 0)) {
+            // Limpa single_payment_date apenas se não houver entrada, pois ele seria para o pagamento à vista
+            // form.payment.single_payment_date = null; // Opcional, já que o campo não será mostrado
+        }
     }
 });
+
 
 const amount_to_be_paid_or_installed = computed(() => {
     const total = parseFloat(String(form.payment.total_amount)) || 0;
@@ -206,55 +195,78 @@ const installmentAmount = computed(() => {
     return null;
 });
 
-function submitProcess() {
+function submit() {
     const dataToSubmit: ProcessCreateFormData = JSON.parse(JSON.stringify(form.data()));
 
     if (dataToSubmit.contact_id !== null && dataToSubmit.contact_id !== undefined) {
         dataToSubmit.contact_id = String(dataToSubmit.contact_id);
     }
     if (dataToSubmit.responsible_id !== null && dataToSubmit.responsible_id !== undefined && String(dataToSubmit.responsible_id).trim() !== "") {
-        dataToSubmit.responsible_id = String(dataToSubmit.responsible_id);
+        dataToSubmit.responsible_id = Number(dataToSubmit.responsible_id); // Converter para número se for string
     } else {
         dataToSubmit.responsible_id = null;
     }
 
-    // Prepara os dados do pagamento para envio
+    // Lógica para limpar/ajustar campos de pagamento antes do envio
     if (dataToSubmit.payment && dataToSubmit.payment.total_amount && parseFloat(String(dataToSubmit.payment.total_amount)) > 0) {
         const hasAdvancePayment = dataToSubmit.payment.advance_payment_amount && parseFloat(String(dataToSubmit.payment.advance_payment_amount)) > 0;
 
         if (dataToSubmit.payment.payment_type === 'a_vista') {
             dataToSubmit.payment.number_of_installments = null;
             dataToSubmit.payment.first_installment_due_date = null;
-            // single_payment_date é mantido (data do pagamento à vista ou da entrada)
         } else if (dataToSubmit.payment.payment_type === 'parcelado') {
-            // Se for parcelado e NÃO houver entrada, single_payment_date não se aplica ao financiamento.
             if (!hasAdvancePayment) {
                 dataToSubmit.payment.single_payment_date = null;
             }
-            // Se for parcelado COM entrada, single_payment_date (data da entrada) é mantido.
         }
 
         if (!hasAdvancePayment) {
             dataToSubmit.payment.advance_payment_amount = null;
         }
     } else {
-        // Sem valor total, sem informações de pagamento.
         dataToSubmit.payment = {} as PaymentFormData;
     }
+    
+    // console.log('Dados finais a serem enviados:', dataToSubmit);
 
     form.transform(() => dataToSubmit)
-        .post(routeHelper('processes.store'), {
-            onSuccess: () => { /* Backend redireciona */ },
-            onError: (formErrors) => {
-                console.error('Erro ao criar caso:', formErrors);
-            }
+        .post(route('processes.store'), {
+            onSuccess: () => {
+                // O backend redireciona
+            },
+            onError: (errors) => {
+                console.error("Erros do backend na submissão:", errors);
+            },
         });
 }
+
+const breadcrumbs = computed<BreadcrumbItem[]>(() => [
+    { title: 'Casos', href: route('processes.index') },
+    { title: 'Novo Caso', href: route('processes.create') },
+]);
+
+const contactOptions = computed(() => {
+    return props.contactsList.map(contact => ({
+        value: contact.id, // Mantém como number se for number
+        label: `${contact.name || contact.business_name || 'Nome não disponível'} (${contact.type === 'physical' ? 'PF' : 'PJ'})`
+    }));
+});
+
+const responsibleOptions = computed(() => {
+    return props.users.map(user => ({
+        value: user.id, // Mantém como number
+        label: user.name
+    }));
+});
+
+const priorityOptions = computed(() => props.availablePriorities);
+const statusOptions = computed(() => props.availableStatuses);
+
 </script>
 
 <template>
-    <Head :title="pageTitle" />
     <AppLayout :breadcrumbs="breadcrumbs">
+        <Head title="Novo Caso" />
         <div class="container mx-auto p-4 sm:p-6 lg:p-8">
             <Card class="max-w-3xl mx-auto dark:bg-gray-800">
                 <CardHeader>
@@ -264,116 +276,100 @@ function submitProcess() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form @submit.prevent="submitProcess" class="space-y-6">
+                    <form @submit.prevent="submit" class="space-y-6">
 
                         <div>
-                            <Label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Título
-                                do Caso <span class="text-red-500">*</span></Label>
-                            <Input id="title" type="text" v-model="form.title" class="mt-1 block w-full" required
-                                autocomplete="off" />
-                            <div v-if="form.errors.title"
-                                class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            <Label for="title">Título do Caso <span class="text-red-500">*</span></Label>
+                            <Input id="title" v-model="form.title" required placeholder="Defina um título para o caso" />
+                            <div v-if="form.errors.title" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                 {{ form.errors.title }}
                             </div>
                         </div>
 
                         <div>
-                            <Label for="contact_id"
-                                class="block text-sm font-medium text-gray-700 dark:text-gray-300">Contato Principal
-                                <span class="text-red-500">*</span></Label>
-                            <Select v-model="form.contact_id" :disabled="!!props.contact_id" required>
-                                <SelectTrigger id="contact_id" class="mt-1 w-full">
-                                    <SelectValue placeholder="Selecione um contato" />
+                            <Label for="contact_id">Contato Principal <span class="text-red-500">*</span></Label>
+                            <Select v-model="form.contact_id" :disabled="!!props.contact_id">
+                                <SelectTrigger id="contact_id">
+                                    <SelectValue :placeholder="props.contact_name || 'Selecione um contato'" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectGroup>
-                                        <SelectItem v-if="!props.contactsList || props.contactsList.length === 0"
-                                            value="null_placeholder" disabled>
-                                            Nenhum contato disponível
+                                        <SelectLabel>Contatos</SelectLabel>
+                                        <SelectItem v-if="props.contact_id && props.contact_name" :value="props.contact_id">
+                                            {{ props.contact_name }}
                                         </SelectItem>
                                         <template v-else>
-                                            <SelectItem v-for="contact in props.contactsList" :key="contact.id"
-                                                :value="String(contact.id)">
-                                                {{ getContactDisplayForSelect(contact) }}
+                                            <SelectItem v-for="contact in contactOptions" :key="contact.value"
+                                                :value="contact.value">
+                                                {{ contact.label }}
                                             </SelectItem>
                                         </template>
+                                        <SelectItem v-if="(!props.contactsList || props.contactsList.length === 0) && !(props.contact_id && props.contact_name)" value="null_placeholder_disabled" disabled>
+                                            Nenhum contato disponível
+                                        </SelectItem>
                                     </SelectGroup>
                                 </SelectContent>
                             </Select>
-                            <div v-if="form.errors.contact_id"
-                                class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            <div v-if="form.errors.contact_id" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                 {{ form.errors.contact_id }}
                             </div>
                         </div>
 
                         <div>
-                            <Label for="description"
-                                class="block text-sm font-medium text-gray-700 dark:text-gray-300">Descrição</Label>
+                            <Label for="description">Descrição</Label>
                             <Textarea id="description" v-model="form.description" rows="4" class="mt-1 block w-full"
                                 placeholder="Detalhes sobre o caso, histórico, próximos passos..." />
-                            <div v-if="form.errors.description"
-                                class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            <div v-if="form.errors.description" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                 {{ form.errors.description }}
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <Label for="workflow"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Workflow <span
-                                        class="text-red-500">*</span></Label>
-                                <Select v-model="form.workflow" required>
-                                    <SelectTrigger id="workflow" class="mt-1 w-full">
+                                <Label for="workflow">Workflow <span class="text-red-500">*</span></Label>
+                                <Select v-model="form.workflow">
+                                    <SelectTrigger id="workflow">
                                         <SelectValue placeholder="Selecione um workflow" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectGroup>
-                                            <SelectItem
-                                                v-if="!props.availableWorkflows || props.availableWorkflows.length === 0"
-                                                value="null_placeholder" disabled>
-                                                Nenhum workflow disponível
+                                            <SelectLabel>Workflows Disponíveis</SelectLabel>
+                                            <SelectItem v-for="workflowOpt in availableWorkflows" :key="workflowOpt.key"
+                                                :value="workflowOpt.key">
+                                                {{ workflowOpt.label }}
                                             </SelectItem>
-                                            <template v-else>
-                                                <SelectItem v-for="wf in props.availableWorkflows" :key="wf.key"
-                                                    :value="wf.key">
-                                                    {{ wf.label }}
-                                                </SelectItem>
-                                            </template>
+                                            <SelectItem v-if="!availableWorkflows || availableWorkflows.length === 0" value="no_workflow_placeholder" disabled>
+                                                Nenhum workflow configurado
+                                            </SelectItem>
                                         </SelectGroup>
                                     </SelectContent>
                                 </Select>
-                                <div v-if="form.errors.workflow"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <div v-if="form.errors.workflow" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.workflow }}
                                 </div>
                             </div>
                             <div>
-                                <Label for="stage"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Estágio <span
-                                        class="text-red-500">*</span></Label>
-                                <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0"
-                                    required>
-                                    <SelectTrigger id="stage" class="mt-1 w-full">
+                                <Label for="stage">Estágio <span class="text-red-500">*</span></Label>
+                                <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0">
+                                    <SelectTrigger id="stage">
                                         <SelectValue placeholder="Selecione um estágio" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectGroup>
-                                            <SelectItem v-if="!form.workflow" value="null_placeholder" disabled>
-                                                Selecione um workflow primeiro
+                                            <SelectLabel>Estágios do Workflow</SelectLabel>
+                                            <SelectItem v-for="stageOpt in currentStages" :key="stageOpt.key" :value="stageOpt.key">
+                                                {{ stageOpt.label }}
                                             </SelectItem>
-                                            <SelectItem v-else-if="currentStages.length === 0" value="null_placeholder" disabled>
+                                            <SelectItem v-if="form.workflow && currentStages.length === 0" value="no_stage_placeholder" disabled>
                                                 Nenhum estágio para este workflow
                                             </SelectItem>
-                                            <template v-else>
-                                                <SelectItem v-for="st in currentStages" :key="st.key" :value="st.key">
-                                                    {{ st.label }}
-                                                </SelectItem>
-                                            </template>
+                                             <SelectItem v-if="!form.workflow" value="select_workflow_first" disabled>
+                                                Selecione um workflow primeiro
+                                            </SelectItem>
                                         </SelectGroup>
                                     </SelectContent>
                                 </Select>
-                                <div v-if="form.errors.stage"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <div v-if="form.errors.stage" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.stage }}
                                 </div>
                             </div>
@@ -381,39 +377,30 @@ function submitProcess() {
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <Label for="responsible_id"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Responsável</Label>
+                                <Label for="responsible_id">Responsável</Label>
                                 <Select v-model="form.responsible_id">
-                                     <SelectTrigger id="responsible_id" class="mt-1 w-full">
+                                    <SelectTrigger id="responsible_id">
                                         <SelectValue placeholder="Selecione um responsável" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectGroup>
+                                            <SelectLabel>Usuários</SelectLabel>
                                             <SelectItem :value="null">Ninguém (Não atribuído)</SelectItem>
-                                            <template v-if="usersToSelect && usersToSelect.length > 0">
-                                                <SelectItem v-for="user in usersToSelect" :key="user.id"
-                                                    :value="String(user.id)">
-                                                    {{ user.name }}
-                                                </SelectItem>
-                                            </template>
-                                             <SelectItem v-else-if="!props.users" value="loading_users_placeholder" disabled>Carregando usuários...</SelectItem>
-                                            <SelectItem v-else value="no_users_placeholder" disabled>Nenhum usuário disponível</SelectItem>
+                                            <SelectItem v-for="user in responsibleOptions" :key="user.value"
+                                                :value="user.value">
+                                                {{ user.label }}
+                                            </SelectItem>
                                         </SelectGroup>
                                     </SelectContent>
                                 </Select>
-                                <div v-if="form.errors.responsible_id"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <div v-if="form.errors.responsible_id" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.responsible_id }}
                                 </div>
                             </div>
                             <div>
-                                <Label for="origin"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Origem do
-                                    Caso</Label>
-                                <Input id="origin" type="text" v-model="form.origin" class="mt-1 block w-full"
-                                    placeholder="Ex: Indicação, Website, Telefone" autocomplete="off" />
-                                <div v-if="form.errors.origin"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <Label for="origin">Origem do Caso</Label>
+                                <Input id="origin" v-model="form.origin" placeholder="Ex: Indicação, Website, Telefone" />
+                                <div v-if="form.errors.origin" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.origin }}
                                 </div>
                             </div>
@@ -421,59 +408,40 @@ function submitProcess() {
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <Label for="priority"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Prioridade <span
-                                        class="text-red-500">*</span></Label>
-                                <Select v-model="form.priority" required>
-                                    <SelectTrigger id="priority" class="mt-1 w-full">
+                                <Label for="priority">Prioridade <span class="text-red-500">*</span></Label>
+                                <Select v-model="form.priority">
+                                    <SelectTrigger id="priority">
                                         <SelectValue placeholder="Selecione a prioridade" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectGroup>
-                                            <SelectItem
-                                                v-if="!props.availablePriorities || props.availablePriorities.length === 0"
-                                                value="null_placeholder" disabled>
-                                                Nenhuma prioridade disponível
+                                            <SelectLabel>Níveis de Prioridade</SelectLabel>
+                                            <SelectItem v-for="prio in priorityOptions" :key="prio.key" :value="prio.key">
+                                                {{ prio.label }}
                                             </SelectItem>
-                                            <template v-else>
-                                                <SelectItem v-for="prio in props.availablePriorities" :key="prio.key"
-                                                    :value="prio.key">
-                                                    {{ prio.label }}
-                                                </SelectItem>
-                                            </template>
                                         </SelectGroup>
                                     </SelectContent>
                                 </Select>
-                                <div v-if="form.errors.priority"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <div v-if="form.errors.priority" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.priority }}
                                 </div>
                             </div>
                             <div>
-                                <Label for="status"
-                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</Label>
+                                <Label for="status">Status <span class="text-red-500">*</span></Label>
                                 <Select v-model="form.status">
-                                    <SelectTrigger id="status" class="mt-1 w-full">
+                                    <SelectTrigger id="status">
                                         <SelectValue placeholder="Selecione o status" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectGroup>
-                                            <SelectItem
-                                                v-if="!props.availableStatuses || props.availableStatuses.length === 0"
-                                                value="null_placeholder" disabled>
-                                                Nenhum status disponível
+                                            <SelectLabel>Status Disponíveis</SelectLabel>
+                                            <SelectItem v-for="stat in statusOptions" :key="stat.key" :value="stat.key">
+                                                {{ stat.label }}
                                             </SelectItem>
-                                            <template v-else>
-                                                <SelectItem v-for="stLocal in props.availableStatuses" :key="stLocal.key"
-                                                    :value="stLocal.key">
-                                                    {{ stLocal.label }}
-                                                </SelectItem>
-                                            </template>
                                         </SelectGroup>
                                     </SelectContent>
                                 </Select>
-                                <div v-if="form.errors.status"
-                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                <div v-if="form.errors.status" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                     {{ form.errors.status }}
                                 </div>
                             </div>
@@ -482,92 +450,79 @@ function submitProcess() {
                         <div class="pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
                             <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100 mb-6">Detalhes Financeiros</h3>
                             <div class="space-y-6">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
-                                    <div>
-                                        <Label for="payment_total_amount"
-                                            class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor
-                                            Total do Contrato/Serviço (R$)</Label>
-                                        <Input id="payment_total_amount" type="number" step="0.01" min="0"
-                                            v-model="form.payment.total_amount" class="mt-1 block w-full"
-                                            placeholder="Ex: 3000.00 (deixe em branco se não aplicável)" />
-                                        <div v-if="form.errors['payment.total_amount']"
-                                            class="text-sm text-red-600 dark:text-red-400 mt-1">
-                                            {{ form.errors['payment.total_amount'] }}
-                                        </div>
+                                <div>
+                                    <Label for="payment_total_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Valor Total do Contrato/Serviço (R$)
+                                    </Label>
+                                    <Input id="payment_total_amount" type="number" step="0.01" min="0"
+                                        v-model="form.payment.total_amount" class="mt-1 block w-full"
+                                        placeholder="Ex: 3000.00 (deixe em branco se não aplicável)" />
+                                    <div v-if="form.errors['payment.total_amount']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                        {{ form.errors['payment.total_amount'] }}
                                     </div>
-                                    </div>
-
+                                </div>
 
                                 <template v-if="form.payment.total_amount && parseFloat(String(form.payment.total_amount)) > 0">
                                     <div>
-                                        <Label for="advance_payment_amount"
-                                            class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor
-                                            da Entrada (R$) (Opcional)</Label>
+                                        <Label for="advance_payment_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                            Valor da Entrada (R$) (Opcional)
+                                        </Label>
                                         <Input id="advance_payment_amount" type="number" step="0.01" min="0"
                                             v-model="form.payment.advance_payment_amount" class="mt-1 block w-full"
                                             placeholder="Ex: 500.00" />
-                                        <div v-if="form.errors['payment.advance_payment_amount']"
-                                            class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                        <div v-if="form.errors['payment.advance_payment_amount']" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                             {{ form.errors['payment.advance_payment_amount'] }}
                                         </div>
                                     </div>
 
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
                                         <div>
-                                            <Label for="payment_type"
-                                                class="block text-sm font-medium text-gray-700 dark:text-gray-300">Forma
-                                                de Pagamento (Restante)</Label>
+                                            <Label for="payment_type" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                Forma de Pagamento (Restante)
+                                            </Label>
                                             <Select v-model="form.payment.payment_type">
                                                 <SelectTrigger id="payment_type" class="mt-1 w-full">
                                                     <SelectValue placeholder="Selecione a forma" />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     <SelectGroup>
-                                                        <SelectItem
-                                                            v-if="!props.paymentTypes || props.paymentTypes.length === 0"
-                                                            value="null_placeholder" disabled>
+                                                        <SelectItem v-if="!props.paymentTypes || props.paymentTypes.length === 0" value="null_placeholder_type" disabled>
                                                             Nenhuma forma disponível
                                                         </SelectItem>
                                                         <template v-else>
-                                                            <SelectItem v-for="type in props.paymentTypes" :key="type.value"
-                                                                :value="type.value">
+                                                            <SelectItem v-for="type in props.paymentTypes" :key="type.value" :value="type.value">
                                                                 {{ type.label }}
                                                             </SelectItem>
                                                         </template>
                                                     </SelectGroup>
                                                 </SelectContent>
                                             </Select>
-                                            <div v-if="form.errors['payment.payment_type']"
-                                                class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                            <div v-if="form.errors['payment.payment_type']" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                                 {{ form.errors['payment.payment_type'] }}
                                             </div>
                                         </div>
                                         <div>
-                                            <Label for="payment_method"
-                                                class="block text-sm font-medium text-gray-700 dark:text-gray-300">Meio
-                                                de Pagamento</Label>
+                                            <Label for="payment_method" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                Meio de Pagamento
+                                            </Label>
                                             <Select v-model="form.payment.payment_method">
                                                 <SelectTrigger id="payment_method" class="mt-1 w-full">
                                                     <SelectValue placeholder="Selecione o meio" />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     <SelectGroup>
-                                                        <SelectItem
-                                                            v-if="!props.paymentMethods || props.paymentMethods.length === 0"
-                                                            value="null_placeholder" disabled>
+                                                        <SelectItem v-if="!props.paymentMethods || props.paymentMethods.length === 0" value="null_placeholder_method" disabled>
                                                             Nenhum meio disponível
                                                         </SelectItem>
                                                         <template v-else>
-                                                            <SelectItem v-for="method in props.paymentMethods" :key="method"
-                                                                :value="method">
+                                                            <SelectItem v-for="method in props.paymentMethods" :key="method" :value="method">
                                                                 {{ method }}
                                                             </SelectItem>
                                                         </template>
                                                     </SelectGroup>
                                                 </SelectContent>
                                             </Select>
-                                            <div v-if="form.errors['payment.payment_method']"
-                                                class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                            <div v-if="form.errors['payment.payment_method']" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                                 {{ form.errors['payment.payment_method'] }}
                                             </div>
                                         </div>
@@ -605,66 +560,60 @@ function submitProcess() {
                                     <div v-if="form.payment.payment_type === 'parcelado' && amount_to_be_paid_or_installed > 0" class="space-y-6 mt-4">
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
                                             <div>
-                                                <Label for="number_of_installments"
-                                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Número
-                                                    de Parcelas (Restante)</Label>
+                                                <Label for="number_of_installments" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                    Número de Parcelas (Restante)
+                                                </Label>
                                                 <Input id="number_of_installments" type="number" min="1"
                                                     v-model.number="form.payment.number_of_installments"
                                                     class="mt-1 block w-full" placeholder="Ex: 3" />
-                                                <div v-if="form.errors['payment.number_of_installments']"
-                                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                                <div v-if="form.errors['payment.number_of_installments']" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                                     {{ form.errors['payment.number_of_installments'] }}
                                                 </div>
                                             </div>
                                             <div>
-                                                <Label for="first_installment_due_date"
-                                                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Data da 1ª Parcela (Restante)</Label>
+                                                <Label for="first_installment_due_date" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                    Data da 1ª Parcela (Restante)
+                                                </Label>
                                                 <Input id="first_installment_due_date" type="date"
                                                     v-model="form.payment.first_installment_due_date" class="mt-1 block w-full" />
-                                                <div v-if="form.errors['payment.first_installment_due_date']"
-                                                    class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                                <div v-if="form.errors['payment.first_installment_due_date']" class="text-sm text-red-600 dark:text-red-400 mt-1">
                                                     {{ form.errors['payment.first_installment_due_date'] }}
                                                 </div>
                                             </div>
                                         </div>
-                                         <div>
-                                            <Label for="installment_amount_display"
-                                                class="block text-sm font-medium text-gray-700 dark:text-gray-300">Valor
-                                                da Parcela (R$)</Label>
+                                        <div>
+                                            <Label for="installment_amount_display" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                Valor da Parcela (R$)
+                                            </Label>
                                             <Input id="installment_amount_display" type="text"
                                                 :value="installmentAmount ? `R$ ${installmentAmount}` : (amount_to_be_paid_or_installed > 0 && form.payment.number_of_installments ? 'Calculando...' : 'R$ 0.00')"
                                                 class="mt-1 block w-full bg-gray-100 dark:bg-slate-700 cursor-not-allowed"
                                                 readonly />
                                         </div>
                                     </div>
-                                </template> <div class="mt-4" v-if="form.payment.total_amount && parseFloat(String(form.payment.total_amount)) > 0">
-                                    <Label for="payment_notes"
-                                        class="block text-sm font-medium text-gray-700 dark:text-gray-300">Observações
-                                        Financeiras</Label>
-                                    <Textarea id="payment_notes" v-model="form.payment.notes" rows="3"
-                                        class="mt-1 block w-full"
-                                        placeholder="Detalhes sobre a entrada, datas das parcelas, etc." />
-                                    <div v-if="form.errors['payment.notes']"
-                                        class="text-sm text-red-600 dark:text-red-400 mt-1">
-                                        {{ form.errors['payment.notes'] }}
+                                    <div class="mt-4">
+                                        <Label for="payment_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                            Observações Financeiras
+                                        </Label>
+                                        <Textarea id="payment_notes" v-model="form.payment.notes" rows="3"
+                                            class="mt-1 block w-full"
+                                            placeholder="Detalhes sobre a entrada, datas das parcelas, etc." />
+                                        <div v-if="form.errors['payment.notes']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                            {{ form.errors['payment.notes'] }}
+                                        </div>
                                     </div>
-                                </div>
+                                </template>
                             </div>
                         </div>
 
                         <div class="flex justify-end space-x-3 pt-8">
-                            <Link
-                                :href="props.contact_id ? routeHelper('contacts.show', props.contact_id) : routeHelper('processes.index')">
-                            <Button type="button" variant="outline">Cancelar</Button>
+                            <Link :href="props.contact_id ? route('contacts.show', props.contact_id) : route('processes.index')">
+                                <Button type="button" variant="outline">Cancelar</Button>
                             </Link>
                             <Button type="submit" :disabled="form.processing">
-                                <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
-                                        stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
+                                 <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
                                 {{ form.processing ? 'Salvando...' : 'Salvar Caso' }}
                             </Button>

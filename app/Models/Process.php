@@ -96,9 +96,9 @@ class Process extends Model
 
     public const WORKFLOWS = [
         self::WORKFLOW_PROSPECTING => 'Prospecção',
-        self::WORKFLOW_CONSULTATIVE => 'Consultivo',
         self::WORKFLOW_ADMINISTRATIVE => 'Administrativo',
         self::WORKFLOW_JUDICIAL => 'Judicial',
+        self::WORKFLOW_CONSULTATIVE => 'Consultivo',
     ];
 
     // Constantes para Estágios (Stages)
@@ -115,11 +115,14 @@ class Process extends Model
         3 => 'Parecer',
     ];
     public const STAGES_ADMINISTRATIVE = [
-        1 => 'Análise Inicial AdM',
-        2 => 'Protocolo AdM',
-        3 => 'Acompanhamento AdM',
-        4 => 'Recurso AdM',
-        5 => 'Conclusão AdM',
+        1 => 'Análise Inicial Adm',
+        2 => 'Protocolo Adm',
+        3 => 'Acompanhamento Adm',
+        4 => 'Recurso Adm',
+        5 => 'Conclusão Adm',
+        6 => 'Exigência Adm',
+        7 => 'Petição Inicial',
+        8 => 'Concessão',
     ];
     public const STAGES_JUDICIAL = [
         1 => 'Petição Inicial Jud',
@@ -129,6 +132,8 @@ class Process extends Model
         5 => 'Sentença Jud',
         6 => 'Recursos Jud',
         7 => 'Execução Jud',
+        8 => 'Protocolo Jud',
+        9 => 'Exigência Jud',
     ];
 
     // Constantes para Prioridades
