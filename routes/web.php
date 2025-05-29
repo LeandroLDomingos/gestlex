@@ -64,7 +64,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::post('/processes/{process}/documents', [ProcessController::class, 'storeProcessDocument'])->name('processes.documents.store');
     Route::delete('/processes/{process}/documents/{document}', [ProcessController::class, 'destroyProcessDocument'])->name('processes.documents.destroy');
-
+    Route::put('/processes/{process}/payments/{payment}', [ProcessController::class, 'updateProcessPayment'])->name('processes.payments.update');
 
     // --- ROTAS PARA TAREFAS DE PROCESSO ---
     Route::post('/processes/{process}/tasks', [ProcessController::class, 'storeProcessTask'])

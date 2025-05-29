@@ -103,14 +103,22 @@ class ProcessController extends Controller
             ->when($priorityFilter, fn(Builder $query, $val) => $query->where('priority', $val))
             ->when($statusFilter, fn(Builder $query, $val) => $query->where('status', $val))
             ->when($dateFromFilter, function (Builder $query, $dateFrom) {
-                try { return $query->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $query; }
+                try {
+                    return $query->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay());
+                } catch (\Exception $e) {
+                    return $query;
+                }
             })
             ->when($dateToFilter, function (Builder $query, $dateTo) {
-                try { return $query->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $query; }
+                try {
+                    return $query->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay());
+                } catch (\Exception $e) {
+                    return $query;
+                }
             });
 
         if (in_array($sortBy, ['title', 'origin', 'workflow', 'stage', 'priority', 'status', 'due_date'])) {
-             $processesQuery->orderByRaw("LOWER(CAST({$sortBy} AS TEXT)) {$sortDirection}");
+            $processesQuery->orderByRaw("LOWER(CAST({$sortBy} AS TEXT)) {$sortDirection}");
         } elseif ($sortBy === 'contact.name') {
             $processesQuery->leftJoin('contacts', 'processes.contact_id', '=', 'contacts.id')
                 ->orderBy('contacts.name', $sortDirection)
@@ -120,7 +128,7 @@ class ProcessController extends Controller
                 ->orderBy('users.name', $sortDirection)
                 ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
-             if ($sortBy === 'payments_sum_total_amount') {
+            if ($sortBy === 'payments_sum_total_amount') {
                 $processesQuery->orderBy('payments_sum_total_amount', $sortDirection);
             } else {
                 $processesQuery->orderBy($sortBy, $sortDirection);
@@ -136,10 +144,18 @@ class ProcessController extends Controller
                 ->when($priorityFilter, fn($q, $val) => $q->where('priority', $val))
                 ->when($statusFilter, fn($q, $val) => $q->where('status', $val))
                 ->when($dateFromFilter, function (Builder $q, $dateFrom) {
-                    try { return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay()); } catch (\Exception $e) { return $q; }
+                    try {
+                        return $q->whereDate('created_at', '>=', Carbon::parse($dateFrom)->startOfDay());
+                    } catch (\Exception $e) {
+                        return $q;
+                    }
                 })
                 ->when($dateToFilter, function (Builder $q, $dateTo) {
-                    try { return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay()); } catch (\Exception $e) { return $q; }
+                    try {
+                        return $q->whereDate('created_at', '<=', Carbon::parse($dateTo)->endOfDay());
+                    } catch (\Exception $e) {
+                        return $q;
+                    }
                 });
             return $query;
         };
@@ -148,16 +164,16 @@ class ProcessController extends Controller
         if (defined('App\Models\Process::WORKFLOWS') && is_array(Process::WORKFLOWS)) {
             $workflowsData = collect(Process::WORKFLOWS)->map(function ($label, $key) use ($baseCountQueryForSidebar) {
                 $countQueryForWorkflow = (clone $baseCountQueryForSidebar())
-                                        ->where('workflow', $key)
-                                        ->whereNull('archived_at');
+                    ->where('workflow', $key)
+                    ->whereNull('archived_at');
                 return [
                     'key' => $key,
                     'label' => $label,
                     'count' => $countQueryForWorkflow->count(),
                     'stages' => method_exists(Process::class, 'getStagesForWorkflow') ?
-                                collect(Process::getStagesForWorkflow($key))
-                                    ->map(fn($stageLabel, $stageKey) => ['key' => (int) $stageKey, 'label' => $stageLabel])
-                                    ->values()->all() : [],
+                        collect(Process::getStagesForWorkflow($key))
+                            ->map(fn($stageLabel, $stageKey) => ['key' => (int) $stageKey, 'label' => $stageLabel])
+                            ->values()->all() : [],
                 ];
             })->values()->all();
         }
@@ -264,13 +280,16 @@ class ProcessController extends Controller
             'payment.total_amount' => 'nullable|numeric|min:0.01|required_with:payment.payment_type',
             'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
             'payment.payment_type' => [
-                'nullable', 'string',
+                'nullable',
+                'string',
                 Rule::requiredIf(fn() => !empty($request->input('payment.total_amount')) && (float) $request->input('payment.total_amount') > 0),
-                new EnumRule(PaymentType::class), Rule::notIn([PaymentType::HONORARIO->value])
+                new EnumRule(PaymentType::class),
+                Rule::notIn([PaymentType::HONORARIO->value])
             ],
             'payment.payment_method' => 'nullable|string|max:100',
             'payment.single_payment_date' => [
-                'nullable', 'date_format:Y-m-d',
+                'nullable',
+                'date_format:Y-m-d',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     $paymentType = $payment['payment_type'] ?? null;
@@ -282,19 +301,22 @@ class ProcessController extends Controller
                 }),
             ],
             'payment.number_of_installments' => [
-                'nullable', 'integer', 'min:1',
+                'nullable',
+                'integer',
+                'min:1',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                           ((float)($payment['total_amount'] ?? 0) - (float)($payment['advance_payment_amount'] ?? 0)) > 0;
+                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.first_installment_due_date' => [
-                'nullable', 'date_format:Y-m-d',
+                'nullable',
+                'date_format:Y-m-d',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                           ((float)($payment['total_amount'] ?? 0) - (float)($payment['advance_payment_amount'] ?? 0)) > 0;
+                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.notes' => 'nullable|string|max:1000',
@@ -306,7 +328,7 @@ class ProcessController extends Controller
                 return back()->withErrors(['stage' => 'O estágio selecionado não é válido para o workflow escolhido.'])->withInput();
             }
         } else {
-             return back()->withErrors(['workflow' => 'O workflow selecionado é inválido.'])->withInput();
+            return back()->withErrors(['workflow' => 'O workflow selecionado é inválido.'])->withInput();
         }
 
         DB::beginTransaction();
@@ -357,7 +379,8 @@ class ProcessController extends Controller
                         ]);
                     } elseif ($paymentTypeFromInput === PaymentType::PARCELADO) {
                         $numberOfInstallmentsForFinancing = (int) ($paymentInput['number_of_installments'] ?? 1);
-                        if ($numberOfInstallmentsForFinancing <= 0) $numberOfInstallmentsForFinancing = 1;
+                        if ($numberOfInstallmentsForFinancing <= 0)
+                            $numberOfInstallmentsForFinancing = 1;
                         $baseInstallmentValue = round($amountToFinance / $numberOfInstallmentsForFinancing, 2);
                         $currentDueDate = Carbon::parse($paymentInput['first_installment_due_date']);
 
@@ -390,15 +413,15 @@ class ProcessController extends Controller
                         }
                     }
                 } elseif ($purchaseTotalAmount > 0 && $downPaymentAmountFromInput === $purchaseTotalAmount) {
-                     $entryPaymentRecord = $process->payments()
-                                            ->where('down_payment_amount', $downPaymentAmountFromInput)
-                                            ->where('total_amount', $downPaymentAmountFromInput)
-                                            ->latest()->first();
-                    if($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1){
-                         $entryPaymentRecord->update([
+                    $entryPaymentRecord = $process->payments()
+                        ->where('down_payment_amount', $downPaymentAmountFromInput)
+                        ->where('total_amount', $downPaymentAmountFromInput)
+                        ->latest()->first();
+                    if ($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1) {
+                        $entryPaymentRecord->update([
                             'number_of_installments' => 1,
                             'notes' => ($entryPaymentRecord->notes ?? '') . ' (Quitado integralmente com entrada)'
-                         ]);
+                        ]);
                     }
                 }
             }
@@ -511,16 +534,16 @@ class ProcessController extends Controller
 
             $finalNotes = $validatedData['description'];
             if (!empty($validatedData['notes'])) {
-                 // Se a descrição original já estava nas notas, evitamos duplicar.
+                // Se a descrição original já estava nas notas, evitamos duplicar.
                 // Uma lógica mais robusta poderia ser necessária se as notas originais fossem complexas.
-                if(strpos($fee->notes ?? '', $validatedData['description']) === false) {
-                     $finalNotes = $validatedData['description'];
+                if (strpos($fee->notes ?? '', $validatedData['description']) === false) {
+                    $finalNotes = $validatedData['description'];
                 } else {
                     $finalNotes = $fee->notes; // Mantém as notas originais se a descrição já estiver lá
                 }
                 // Adiciona as novas notas se houver
-                if(!empty($validatedData['notes']) && $validatedData['notes'] !== $validatedData['description']){
-                     $finalNotes = $validatedData['description'] . "\nObservações Adicionais: " . $validatedData['notes'];
+                if (!empty($validatedData['notes']) && $validatedData['notes'] !== $validatedData['description']) {
+                    $finalNotes = $validatedData['description'] . "\nObservações Adicionais: " . $validatedData['notes'];
                 } elseif (empty($validatedData['notes'])) {
                     $finalNotes = $validatedData['description'];
                 }
@@ -650,7 +673,8 @@ class ProcessController extends Controller
                     $paymentDataForForm['first_installment_due_date'] = $firstInstallment->first_installment_due_date ? Carbon::parse($firstInstallment->first_installment_due_date)->toDateString() : null;
                     if (!$entryPayment) {
                         $paymentDataForForm['payment_method'] = $firstInstallment->payment_method;
-                        if(is_null($paymentDataForForm['notes'])) $paymentDataForForm['notes'] = $firstInstallment->notes;
+                        if (is_null($paymentDataForForm['notes']))
+                            $paymentDataForForm['notes'] = $firstInstallment->notes;
                     }
                 } elseif ($entryPayment && !$firstInstallment) {
                     $paymentDataForForm['payment_type'] = $entryPayment->payment_type instanceof PaymentType ? $entryPayment->payment_type->value : $entryPayment->payment_type;
@@ -702,13 +726,16 @@ class ProcessController extends Controller
             'payment.total_amount' => 'nullable|numeric|min:0.01|required_with:payment.payment_type',
             'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
             'payment.payment_type' => [
-                'nullable', 'string',
+                'nullable',
+                'string',
                 Rule::requiredIf(fn() => !empty($request->input('payment.total_amount')) && (float) $request->input('payment.total_amount') > 0),
-                new EnumRule(PaymentType::class), Rule::notIn([PaymentType::HONORARIO->value])
+                new EnumRule(PaymentType::class),
+                Rule::notIn([PaymentType::HONORARIO->value])
             ],
             'payment.payment_method' => 'nullable|string|max:100',
             'payment.single_payment_date' => [
-                'nullable', 'date_format:Y-m-d',
+                'nullable',
+                'date_format:Y-m-d',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     $paymentType = $payment['payment_type'] ?? null;
@@ -720,19 +747,22 @@ class ProcessController extends Controller
                 }),
             ],
             'payment.number_of_installments' => [
-                'nullable', 'integer', 'min:1',
+                'nullable',
+                'integer',
+                'min:1',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                           ((float)($payment['total_amount'] ?? 0) - (float)($payment['advance_payment_amount'] ?? 0)) > 0;
+                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.first_installment_due_date' => [
-                'nullable', 'date_format:Y-m-d',
+                'nullable',
+                'date_format:Y-m-d',
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                           ((float)($payment['total_amount'] ?? 0) - (float)($payment['advance_payment_amount'] ?? 0)) > 0;
+                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.notes' => 'nullable|string|max:1000',
@@ -744,7 +774,7 @@ class ProcessController extends Controller
                 return back()->withErrors(['stage' => 'O estágio selecionado não é válido para o workflow escolhido.'])->withInput();
             }
         } else {
-             return back()->withErrors(['workflow' => 'O workflow selecionado é inválido.'])->withInput();
+            return back()->withErrors(['workflow' => 'O workflow selecionado é inválido.'])->withInput();
         }
 
         DB::beginTransaction();
@@ -771,7 +801,7 @@ class ProcessController extends Controller
                         'payment_type' => $paymentTypeFromInput,
                         'payment_method' => $paymentMethodFromInput,
                         'down_payment_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
-                        'number_of_installments' => ($paymentTypeFromInput === PaymentType::PARCELADO && $amountToFinance > 0) ? (int)($paymentInput['number_of_installments'] ?? 1) : 1,
+                        'number_of_installments' => ($paymentTypeFromInput === PaymentType::PARCELADO && $amountToFinance > 0) ? (int) ($paymentInput['number_of_installments'] ?? 1) : 1,
                         'value_of_installment' => $downPaymentAmountFromInput,
                         'status' => ProcessPayment::STATUS_PAID,
                         'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
@@ -796,7 +826,8 @@ class ProcessController extends Controller
                         ]);
                     } elseif ($paymentTypeFromInput === PaymentType::PARCELADO) {
                         $numberOfInstallmentsForFinancing = (int) ($paymentInput['number_of_installments'] ?? 1);
-                        if ($numberOfInstallmentsForFinancing <= 0) $numberOfInstallmentsForFinancing = 1;
+                        if ($numberOfInstallmentsForFinancing <= 0)
+                            $numberOfInstallmentsForFinancing = 1;
                         $baseInstallmentValue = round($amountToFinance / $numberOfInstallmentsForFinancing, 2);
                         $currentDueDate = Carbon::parse($paymentInput['first_installment_due_date']);
                         for ($i = 1; $i <= $numberOfInstallmentsForFinancing; $i++) {
@@ -828,15 +859,15 @@ class ProcessController extends Controller
                         }
                     }
                 } elseif ($purchaseTotalAmount > 0 && $downPaymentAmountFromInput === $purchaseTotalAmount) {
-                     $entryPaymentRecord = $process->payments()
-                                            ->where('down_payment_amount', $downPaymentAmountFromInput)
-                                            ->where('total_amount', $downPaymentAmountFromInput)
-                                            ->latest()->first();
-                    if($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1){
-                         $entryPaymentRecord->update([
+                    $entryPaymentRecord = $process->payments()
+                        ->where('down_payment_amount', $downPaymentAmountFromInput)
+                        ->where('total_amount', $downPaymentAmountFromInput)
+                        ->latest()->first();
+                    if ($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1) {
+                        $entryPaymentRecord->update([
                             'number_of_installments' => 1,
                             'notes' => ($entryPaymentRecord->notes ?? '') . ' (Quitado integralmente com entrada - Atualizado)'
-                         ]);
+                        ]);
                     }
                 }
             }
@@ -866,18 +897,22 @@ class ProcessController extends Controller
         $process->load([
             'responsible:id,name',
             'contact:id,name,business_name,type',
-            'annotations' => fn ($query) => $query->with('user:id,name')->latest(),
-            'historyEntries' => fn ($query) => $query->with('user:id,name')->latest(),
-            'tasks' => fn ($query) => $query->with('responsibleUser:id,name')->orderBy('due_date'),
-            'documents' => fn ($query) => $query->with('uploader:id,name')->orderBy('created_at', 'desc'),
-            'payments' => fn ($query) => $query->orderBy('first_installment_due_date', 'asc')->orderBy('created_at', 'asc')
+            'annotations' => fn($query) => $query->with('user:id,name')->latest(),
+            'historyEntries' => fn($query) => $query->with('user:id,name')->latest(),
+            'tasks' => fn($query) => $query->with('responsibleUser:id,name')->orderBy('due_date'),
+            'documents' => fn($query) => $query->with('uploader:id,name')->orderBy('created_at', 'desc'),
+            'payments' => fn($query) => $query->orderBy('first_installment_due_date', 'asc')->orderBy('created_at', 'asc')
         ]);
         $process->payments->each->append('status_label');
 
-        if(method_exists($process, 'getWorkflowLabelAttribute')) $process->append('workflow_label');
-        if(method_exists($process, 'getStageLabelAttribute')) $process->append('stage_label');
-        if(method_exists($process, 'getPriorityLabelAttribute')) $process->append('priority_label');
-        if(method_exists($process, 'getStatusLabelAttribute')) $process->append('status_label');
+        if (method_exists($process, 'getWorkflowLabelAttribute'))
+            $process->append('workflow_label');
+        if (method_exists($process, 'getStageLabelAttribute'))
+            $process->append('stage_label');
+        if (method_exists($process, 'getPriorityLabelAttribute'))
+            $process->append('priority_label');
+        if (method_exists($process, 'getStatusLabelAttribute'))
+            $process->append('status_label');
 
         $availableStages = [];
         if ($process->workflow && defined('App\Models\Process::WORKFLOWS') && is_array(Process::WORKFLOWS) && array_key_exists($process->workflow, Process::WORKFLOWS) && method_exists(Process::class, 'getStagesForWorkflow')) {
@@ -943,7 +978,7 @@ class ProcessController extends Controller
                 'required',
                 'integer',
                 function ($attribute, $value, $fail) use ($process) {
-                    if(method_exists(Process::class, 'getStagesForWorkflow') && isset(Process::WORKFLOWS[$process->workflow])) {
+                    if (method_exists(Process::class, 'getStagesForWorkflow') && isset(Process::WORKFLOWS[$process->workflow])) {
                         $stagesForWorkflow = Process::getStagesForWorkflow($process->workflow);
                         if (!array_key_exists($value, $stagesForWorkflow)) {
                             $workflowLabel = Process::WORKFLOWS[$process->workflow] ?? $process->workflow;
@@ -1306,6 +1341,118 @@ class ProcessController extends Controller
             DB::rollBack();
             Log::error("Erro ao excluir tarefa {$task->id} do processo {$process->id}: " . $e->getMessage());
             return back()->with('error', 'Falha ao excluir tarefa.');
+        }
+    }
+
+    public function updateProcessPayment(Request $request, Process $process, ProcessPayment $payment)
+    {
+
+        if ($process->isArchived()) {
+            return back()->with('error', 'Não é possível editar pagamentos de um caso arquivado.');
+        }
+
+        // Garante que o pagamento pertence ao processo e NÃO é um honorário
+        // Honorários são tratados pelo método updateFee
+        if ($payment->process_id !== $process->id || $payment->payment_type === PaymentType::HONORARIO) {
+            Log::warning("Tentativa de editar pagamento inválido ou honorário por rota incorreta. Processo ID: {$process->id}, Payment ID: {$payment->id}, Payment Type: {$payment->payment_type->value}");
+            return back()->with('error', 'Pagamento não encontrado ou tipo inválido para esta ação.');
+        }
+
+        $validatedData = $request->validate([
+            'status' => ['required', Rule::in(array_keys(ProcessPayment::$statuses))],
+            'payment_date' => 'nullable|date_format:Y-m-d|required_if:status,' . ProcessPayment::STATUS_PAID,
+            'interest_amount' => 'nullable|numeric|min:0', // Validação para juros
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $updateData = [
+                'status' => $validatedData['status'],
+            ];
+
+            $oldStatusLabel = $payment->status_label;
+            $oldPaymentDate = $payment->down_payment_date ? $payment->down_payment_date->format('d/m/Y') : 'N/A';
+            $oldInterestAmount = $payment->interest_amount ?? 0;
+
+            if ($validatedData['status'] === ProcessPayment::STATUS_PAID) {
+                // Se o status for 'Pago', a 'payment_date' (data de pagamento efetivo) é obrigatória.
+                // No banco, usamos a coluna 'down_payment_date' para armazenar a data de pagamento efetivo.
+                $updateData['down_payment_date'] = Carbon::parse($validatedData['payment_date']);
+
+                // Salva o valor dos juros se fornecido e se o status for 'pago'.
+                // O frontend controla a visibilidade do campo de juros. Se ele não estiver visível,
+                // 'interest_amount' não deve ser enviado ou enviado como null.
+                if ($request->filled('interest_amount')) {
+                    $updateData['interest_amount'] = (float) $validatedData['interest_amount'];
+                } elseif (is_null($request->input('interest_amount')) && $request->has('interest_amount')) {
+                    // Se o campo foi explicitamente enviado como nulo (ex: usuário limpou)
+                    $updateData['interest_amount'] = null;
+                }
+                // Se 'interest_amount' não estiver no request (ex: campo não visível), não o alteramos,
+                // a menos que a lógica abaixo para status não pago o limpe.
+
+            } else {
+                // Se o status não for 'Pago' (ex: 'Pendente', 'Cancelado'),
+                // a data de pagamento efetivo e os juros devem ser nulos.
+                $updateData['down_payment_date'] = null;
+                $updateData['interest_amount'] = null;
+            }
+
+            $payment->update($updateData);
+            $payment->refresh(); // Recarrega o modelo para obter o novo status_label e interest_amount
+
+            // Construção da descrição do histórico
+            $paymentDescription = $payment->notes ?? "Parcela/Entrada ID {$payment->id}";
+            if (strpos($paymentDescription, "Parcela") === false && $payment->payment_type !== PaymentType::A_VISTA && $payment->down_payment_amount > 0 && $payment->total_amount == $payment->down_payment_amount) {
+                $paymentDescription = "Entrada ID {$payment->id}";
+            }
+
+            $historyParts = [];
+            if ($oldStatusLabel !== $payment->status_label) {
+                $historyParts[] = "status alterado de '{$oldStatusLabel}' para '{$payment->status_label}'";
+            }
+
+            $newPaymentDate = $payment->down_payment_date ? $payment->down_payment_date->format('d/m/Y') : 'N/A';
+            if ($newPaymentDate !== $oldPaymentDate) {
+                if ($newPaymentDate !== 'N/A') {
+                    $historyParts[] = "data de pagamento definida para {$newPaymentDate}";
+                } else {
+                    $historyParts[] = "data de pagamento removida (era {$oldPaymentDate})";
+                }
+            }
+
+            $newInterestAmount = $payment->interest_amount ?? 0;
+            if ((float) $newInterestAmount != (float) $oldInterestAmount) {
+                if ($newInterestAmount > 0) {
+                    $historyParts[] = "juros definidos como " . number_format($newInterestAmount, 2, ',', '.');
+                } else {
+                    $historyParts[] = "juros removidos (eram " . number_format($oldInterestAmount, 2, ',', '.') . ")";
+                }
+            }
+
+            if (empty($historyParts)) {
+                $historyDescription = "Pagamento '{$paymentDescription}' (Valor: " . number_format($payment->total_amount, 2, ',', '.') . ") verificado (Status: '{$payment->status_label}').";
+            } else {
+                $historyDescription = "Pagamento '{$paymentDescription}' (Valor: " . number_format($payment->total_amount, 2, ',', '.') . "): " . implode(', ', $historyParts) . ".";
+            }
+
+
+            $process->historyEntries()->create([
+                'action' => 'Pagamento Atualizado',
+                'description' => $historyDescription,
+                'user_id' => Auth::id(),
+            ]);
+
+            DB::commit();
+            return Redirect::route('processes.show', $process->id)->with('success', 'Pagamento atualizado com sucesso!');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Erro ao atualizar pagamento (ID: {$payment->id}) do processo {$process->id}: " . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            return back()->with('error', 'Ocorreu um erro inesperado ao atualizar o pagamento: ' . $e->getMessage());
         }
     }
 }

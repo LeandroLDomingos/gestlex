@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox'; // Para o formulário de honorários
 import {
     Dialog,
     DialogClose,
@@ -33,12 +34,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import {
     Edit, Trash2, PlusCircle, Paperclip, Clock, UserCircle2, Link as LinkIcon,
     MessageSquare, History, Briefcase, DollarSign, Users,
-    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3, HandCoins
+    CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3, HandCoins, Edit2
 } from 'lucide-vue-next';
 
 import type { ProcessAnnotation, ProcessTask, ProcessDocument, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
 
-// Interface para os dados de um pagamento individual
+// Interface para os dados de um pagamento individual (ATUALIZADA)
 interface PaymentData {
     id: string | number;
     process_id: string | number;
@@ -46,26 +47,34 @@ interface PaymentData {
     down_payment_amount: number | string | null;
     payment_type: string | null;
     payment_method: string | null;
-    down_payment_date: string | null;
+    down_payment_date: string | null; // Data de pagamento da entrada ou honorário
     number_of_installments: number | null;
     value_of_installment: number | string | null;
+    interest_amount?: number | string | null; // NOVO CAMPO PARA JUROS
     status: string | null;
     status_label?: string;
-    first_installment_due_date: string | null;
+    first_installment_due_date: string | null; // Data de vencimento da parcela/pagamento único/serviço do honorário
     notes: string | null;
     created_at: string;
     updated_at: string;
 }
 
-// Interface para dados do formulário de honorários
+// Interface para dados do formulário de Adicionar/Editar Honorários
 interface FeeFormData {
     description: string;
     amount: number | string | null;
-    fee_date: string | null;
+    fee_date: string | null; // Data de Vencimento do Honorário
     payment_method: string | null;
-    payment_date: string | null;
+    payment_date: string | null; // Data de Pagamento do Honorário
     is_paid: boolean;
     notes: string | null;
+}
+
+// Interface para formulário de edição de pagamentos de contrato/parcelas (ATUALIZADA)
+interface EditPaymentFormData {
+    payment_date: string | null; // Data de pagamento efetivo
+    status: string | null;
+    interest_amount: number | string | null; // NOVO CAMPO PARA JUROS
 }
 
 interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value' | 'payments'> {
@@ -153,6 +162,39 @@ const editFeeForm = useForm<FeeFormData>({
     notes: '',
 });
 
+const showEditPaymentDialog = ref(false);
+const editingPayment = ref<PaymentData | null>(null);
+const editPaymentForm = useForm<EditPaymentFormData>({
+    payment_date: null,
+    status: null,
+    interest_amount: null,
+});
+
+const showInterestFieldForEditPayment = computed(() => {
+    if (editingPayment.value && editPaymentForm.status === 'paid' && editPaymentForm.payment_date) {
+        const paymentDateStr = editPaymentForm.payment_date;
+        const dueDateStr = (editingPayment.value.payment_type === 'a_vista' && editingPayment.value.down_payment_amount && parseFloat(String(editingPayment.value.down_payment_amount)) > 0) 
+                            ? editingPayment.value.down_payment_date 
+                            : editingPayment.value.first_installment_due_date;
+
+        if (!paymentDateStr || !dueDateStr) return false;
+
+        try {
+            const paymentDate = new Date(paymentDateStr + 'T00:00:00Z');
+            const dueDate = new Date(formatDateForInput(dueDateStr) + 'T00:00:00Z');
+            
+            if (isNaN(paymentDate.getTime()) || isNaN(dueDate.getTime())) return false;
+            
+            return paymentDate > dueDate;
+        } catch (e) {
+            console.error("Erro ao comparar datas para campo de juros:", e);
+            return false;
+        }
+    }
+    return false;
+});
+
+
 watch(() => feeForm.is_paid, (isPaid) => {
     if (isPaid) {
         if (!feeForm.payment_date) {
@@ -174,6 +216,46 @@ watch(() => editFeeForm.is_paid, (isPaid) => {
         editFeeForm.clearErrors('payment_date');
     }
 });
+
+watch(() => editPaymentForm.status, (newStatus) => {
+    if (newStatus === 'paid') {
+        if (!editPaymentForm.payment_date && editingPayment.value?.down_payment_date) {
+             editPaymentForm.payment_date = formatDateForInput(editingPayment.value.down_payment_date);
+        } else if (!editPaymentForm.payment_date) {
+            editPaymentForm.payment_date = new Date().toISOString().split('T')[0];
+        }
+    } else {
+        editPaymentForm.payment_date = null;
+        editPaymentForm.interest_amount = null;
+        editPaymentForm.clearErrors('payment_date');
+        editPaymentForm.clearErrors('interest_amount');
+    }
+});
+
+watch([() => editPaymentForm.payment_date, () => editPaymentForm.status], ([newPaymentDate, newStatus]) => {
+    if (newStatus === 'paid' && newPaymentDate && editingPayment.value) {
+        const dueDateStr = (editingPayment.value.payment_type === 'a_vista' && editingPayment.value.down_payment_amount && parseFloat(String(editingPayment.value.down_payment_amount)) > 0) 
+                            ? editingPayment.value.down_payment_date 
+                            : editingPayment.value.first_installment_due_date;
+        if (!dueDateStr) return;
+
+        try {
+            const paymentDate = new Date(newPaymentDate + 'T00:00:00Z');
+            const dueDate = new Date(formatDateForInput(dueDateStr) + 'T00:00:00Z');
+
+            if (isNaN(paymentDate.getTime()) || isNaN(dueDate.getTime())) return;
+
+            if (paymentDate <= dueDate) {
+                editPaymentForm.interest_amount = null;
+                editPaymentForm.clearErrors('interest_amount');
+            }
+        } catch (e) { /* Ignora erros de parsing de data aqui */ }
+    } else if (newStatus !== 'paid') {
+        editPaymentForm.interest_amount = null;
+        editPaymentForm.clearErrors('interest_amount');
+    }
+}, { deep: true });
+
 
 const taskStatusOptions: SelectOption[] = [
     { key: 'Pendente', label: 'Pendente' },
@@ -243,21 +325,18 @@ const formatCurrency = (value: number | string | null | undefined): string => {
     if (value === null || typeof value === 'undefined' || isNaN(numValue)) return 'N/A';
     return numValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
-
 const getPaymentTypeLabel = (typeKey: string | null): string => {
     if (!typeKey) return 'N/A';
     const foundType = props.paymentTypes?.find(pt => pt.value === typeKey);
     if (foundType) return foundType.label;
     return typeKey.replace(/_/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
-
 const getPaymentStatusLabel = (statusKey: string | null): string => {
     if (!statusKey) return 'N/A';
     const foundStatus = props.paymentStatuses?.find(s => s.key === statusKey);
     if (foundStatus) return foundStatus.label;
     return statusKey.charAt(0).toUpperCase() + statusKey.slice(1);
 };
-
 const priorityLabelForDisplay = computed(() => props.process.priority_label || props.process.priority || 'N/A');
 const priorityVariantForDisplay = computed((): 'destructive' | 'secondary' | 'outline' | 'default' => {
     if (!props.process.priority) return 'outline';
@@ -270,7 +349,6 @@ const priorityVariantForDisplay = computed((): 'destructive' | 'secondary' | 'ou
 });
 
 const annotationForm = useForm({ content: '' });
-
 function submitAnnotation() {
     annotationForm.post(routeHelper('processes.annotations.store', props.process.id), {
         preserveScroll: true,
@@ -278,7 +356,6 @@ function submitAnnotation() {
         onError: (errors) => console.error("Erro ao salvar anotação:", errors)
     });
 }
-
 function editProcess() { router.visit(routeHelper('processes.edit', props.process.id)); }
 function toggleArchiveProcess() {
     const targetRoute = props.process.archived_at ? 'processes.unarchive' : 'processes.archive';
@@ -296,7 +373,6 @@ function submitDeleteProcess() {
         onError: (errors) => console.error('Erro ao excluir processo:', errors)
     });
 }
-
 function openDeleteProcessAnnotationDialog(annotation: ProcessAnnotation) {
     processAnnotationToDelete.value = annotation;
     showDeleteProcessAnnotationDialog.value = true;
@@ -309,7 +385,6 @@ function submitDeleteProcessAnnotation() {
         onError: (errors) => console.error('Erro ao excluir anotação do processo:', errors)
     });
 }
-
 function updateStage(newStageKey: number) {
     stageUpdateForm.stage = newStageKey;
     stageUpdateForm.patch(routeHelper('processes.updateStage', props.process.id), {
@@ -331,7 +406,6 @@ function updateProcessPriority(newPriorityKey: string) {
         onError: (errors) => { console.error('Erro ao atualizar prioridade:', errors); priorityUpdateForm.priority = props.process.priority; alert(errors.priority || 'Erro ao atualizar prioridade.'); }
     });
 }
-
 function submitProcessDocument() {
     if (!processDocumentForm.file) { processDocumentForm.setError('file', 'Selecione um arquivo.'); return; }
     processDocumentForm.post(routeHelper('processes.documents.store', props.process.id), {
@@ -350,7 +424,6 @@ function submitDeleteProcessDocument() {
         onError: (errors) => console.error('Erro ao excluir documento:', errors)
     });
 }
-
 function openNewTaskModal() {
     editingTask.value = null;
     taskForm.reset();
@@ -358,7 +431,6 @@ function openNewTaskModal() {
     taskForm.id = null;
     showTaskDialog.value = true;
 }
-
 function openEditTaskModal(task: ProcessTask) {
     editingTask.value = task;
     taskForm.id = task.id;
@@ -369,7 +441,6 @@ function openEditTaskModal(task: ProcessTask) {
     taskForm.status = task.status || 'Pendente';
     showTaskDialog.value = true;
 }
-
 function submitProcessTask() {
     const dataToSubmit = {
         ...taskForm.data(),
@@ -399,12 +470,10 @@ function submitProcessTask() {
         });
     }
 }
-
 function openDeleteTaskDialog(task: ProcessTask) {
     taskToDelete.value = task;
     showDeleteTaskDialog.value = true;
 }
-
 function submitDeleteTask() {
     if (!taskToDelete.value) return;
     taskDeleteForm.delete(routeHelper('processes.tasks.destroy', { process: props.process.id, task: taskToDelete.value.id }), {
@@ -417,7 +486,6 @@ function submitDeleteTask() {
         onError: (errors) => console.error('Erro ao excluir tarefa:', errors)
     });
 }
-
 function openAddFeeDialog() {
     feeForm.reset();
     feeForm.fee_date = new Date().toISOString().split('T')[0];
@@ -425,7 +493,6 @@ function openAddFeeDialog() {
     feeForm.payment_date = null;
     showAddFeeDialog.value = true;
 }
-
 function submitFee() {
     const dataToSubmit = {
         ...feeForm.data(),
@@ -444,11 +511,8 @@ function submitFee() {
         }
     });
 }
-
 function openEditFeeDialog(fee: PaymentData) {
-    // console.log('Abrindo modal de edição para o honorário (fee.status):', fee.status);
     editingFee.value = fee;
-
     const dbNotes = fee.notes || '';
     const separator = "\nObservações Adicionais: ";
     const separatorIndex = dbNotes.indexOf(separator);
@@ -460,50 +524,35 @@ function openEditFeeDialog(fee: PaymentData) {
         editFeeForm.description = dbNotes;
         editFeeForm.notes = '';
     }
-
     editFeeForm.amount = fee.total_amount;
     editFeeForm.fee_date = fee.first_installment_due_date ? formatDateForInput(fee.first_installment_due_date) : '';
     editFeeForm.payment_method = fee.payment_method;
-    
     editFeeForm.is_paid = fee.status === 'paid';
-    // console.log('editFeeForm.is_paid inicializado como:', editFeeForm.is_paid);
-    
     if (editFeeForm.is_paid && fee.down_payment_date) {
         editFeeForm.payment_date = formatDateForInput(fee.down_payment_date);
     } else if (editFeeForm.is_paid && !fee.down_payment_date) {
-        // Se está pago mas não tem data no DB, preenche com a data atual.
-        // O watcher também faz isso, mas é bom ter aqui para o estado inicial.
         editFeeForm.payment_date = new Date().toISOString().split('T')[0];
     } else {
         editFeeForm.payment_date = null;
     }
-    // console.log('editFeeForm.payment_date inicializado como:', editFeeForm.payment_date);
-
     editFeeForm.clearErrors();
     showEditFeeDialog.value = true;
 }
-
 function submitEditFee() {
     if (!editingFee.value || !editingFee.value.id) {
         console.error('Nenhum honorário selecionado para edição ou ID do honorário ausente.');
         alert('Erro: Nenhum honorário selecionado para edição.');
         return;
     }
-    
-    // console.log('Valor de editFeeForm.is_paid ANTES de construir dataToSubmit:', editFeeForm.is_paid);
-
     const dataToSubmit = {
         description: editFeeForm.description,
         amount: editFeeForm.amount,
         fee_date: editFeeForm.fee_date,
         payment_method: editFeeForm.payment_method,
-        is_paid: editFeeForm.is_paid, // Este é o valor da checkbox
+        is_paid: editFeeForm.is_paid,
         payment_date: editFeeForm.is_paid && editFeeForm.payment_date ? editFeeForm.payment_date : null,
         notes: editFeeForm.notes,
     };
-    
-    // console.log('Dados COMPLETOS a serem enviados para edição:', dataToSubmit);
-
     router.put(routeHelper('processes.fees.update', { process: props.process.id, fee: editingFee.value!.id }), dataToSubmit, {
         preserveScroll: true,
         onSuccess: () => {
@@ -511,18 +560,75 @@ function submitEditFee() {
             editingFee.value = null;
             editFeeForm.reset();
             router.reload({ only: ['process'] });
-            // Adicionar notificação de sucesso
         },
         onError: (errors) => {
             console.error('Erro ao atualizar honorários:', errors);
-            // Erros são tratados por editFeeForm.errors
         }
     });
 }
 
+function openEditPaymentModal(payment: PaymentData) {
+    editingPayment.value = payment;
+    editPaymentForm.status = payment.status;
+    
+    if (payment.status === 'paid' && payment.down_payment_date) {
+        editPaymentForm.payment_date = formatDateForInput(payment.down_payment_date);
+    } else if (payment.status === 'paid' && !payment.down_payment_date) {
+        editPaymentForm.payment_date = new Date().toISOString().split('T')[0];
+    } else {
+        editPaymentForm.payment_date = null;
+    }
+    editPaymentForm.interest_amount = payment.interest_amount ? String(payment.interest_amount) : null;
+
+    editPaymentForm.clearErrors();
+    showEditPaymentDialog.value = true;
+}
+
+function submitEditPayment() {
+    if (!editingPayment.value || !editingPayment.value.id) {
+        console.error('Nenhum pagamento selecionado para edição.');
+        return;
+    }
+
+    const dataToSubmit: EditPaymentFormData = {
+        status: editPaymentForm.status,
+        payment_date: null, 
+        interest_amount: null,
+    };
+
+    if (editPaymentForm.status === 'paid') {
+        if (!editPaymentForm.payment_date) {
+            editPaymentForm.setError('payment_date', 'Data de pagamento é obrigatória para status Pago.');
+            return;
+        }
+        dataToSubmit.payment_date = editPaymentForm.payment_date;
+
+        if (showInterestFieldForEditPayment.value && editPaymentForm.interest_amount) {
+            const interest = parseFloat(String(editPaymentForm.interest_amount));
+            dataToSubmit.interest_amount = !isNaN(interest) ? interest : null;
+        } else {
+            dataToSubmit.interest_amount = null; 
+        }
+    } else { 
+        dataToSubmit.payment_date = null;
+        dataToSubmit.interest_amount = null;
+    }
+
+    router.put(routeHelper('processes.payments.update', { process: props.process.id, payment: editingPayment.value.id }), dataToSubmit, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showEditPaymentDialog.value = false;
+            editingPayment.value = null;
+            editPaymentForm.reset();
+            router.reload({ only: ['process'] });
+        },
+        onError: (errors) => {
+            console.error('Erro ao atualizar pagamento:', errors);
+        }
+    });
+}
 
 const isArchived = computed(() => !!props.process.archived_at);
-
 const totalPaymentsAmount = computed(() => {
     if (!props.process.payments || props.process.payments.length === 0) {
         return null;
@@ -543,7 +649,6 @@ const totalPaymentsAmount = computed(() => {
                         <MessageSquare v-else-if="process.workflow_label?.toLowerCase().includes('consultivo')" class="h-16 w-16 text-white opacity-75" />
                         <Zap v-else-if="process.workflow_label?.toLowerCase().includes('prospecção')" class="h-16 w-16 text-white opacity-75" />
                         <FileText v-else class="h-16 w-16 text-white opacity-75" />
-
                         <div class="absolute top-2 right-2">
                             <DropdownMenu>
                                 <DropdownMenuTrigger as-child>
@@ -573,7 +678,7 @@ const totalPaymentsAmount = computed(() => {
                         </div>
                     </div>
                     <CardContent class="p-4 space-y-2">
-                        <div v-if="isArchived" class="mb-2 p-2 bg-yellow-100 dark:bg-yellow-900/50 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 text-xs rounded">
+                         <div v-if="isArchived" class="mb-2 p-2 bg-yellow-100 dark:bg-yellow-900/50 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 text-xs rounded">
                             <p class="font-medium">Este caso está arquivado.</p>
                             <p>Arquivado em: {{ formatDate(process.archived_at, true) }}</p>
                         </div>
@@ -806,9 +911,20 @@ const totalPaymentsAmount = computed(() => {
                                     <div class="flex-grow min-w-0">
                                         <p class="font-semibold text-gray-800 dark:text-gray-100">{{ task_item.title }}</p>
                                         <p v-if="task_item.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 whitespace-pre-wrap">{{ task_item.description }}</p>
-                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2 flex-wrap">
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap">
                                             <span v-if="task_item.responsible_user" class="flex items-center"><UserCircle2 class="h-3.5 w-3.5 mr-1"/> {{ task_item.responsible_user?.name || 'N/A' }}</span>
-                                            <span v-if="task_item.due_date" class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> {{ formatDate(task_item.due_date) }}</span>
+                                            <span v-if="task_item.due_date" class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> Venc.: {{ formatDate(task_item.due_date) }}</span>
+                                            <span v-if="task_item.updated_at && task_item.created_at && task_item.updated_at !== task_item.created_at" 
+                                                class="flex items-center" 
+                                                :title="`Criado em: ${formatDate(task_item.created_at, {hour: '2-digit', minute: '2-digit'})}`">
+                                                <Edit2 class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-gray-400 dark:text-gray-500"/> 
+                                                <span>Editado: {{ formatDate(task_item.updated_at, {hour: '2-digit', minute: '2-digit'}) }}</span>
+                                            </span>
+                                            <span v-else-if="task_item.created_at" 
+                                                class="flex items-center">
+                                                <ListChecks class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-gray-400 dark:text-gray-500"/>
+                                                <span>Criado: {{ formatDate(task_item.created_at, {hour: '2-digit', minute: '2-digit'}) }}</span>
+                                            </span>
                                         </div>
                                     </div>
                                     <div class="text-right flex-shrink-0 space-y-1">
@@ -864,43 +980,30 @@ const totalPaymentsAmount = computed(() => {
                                                 variant="ghost"
                                                 size="icon"
                                                 class="h-7 w-7"
-                                                @click="payment_item.payment_type === 'honorario' ? openEditFeeDialog(payment_item) : router.visit(routeHelper('processes.edit', props.process.id) + `?payment_to_edit=${payment_item.id}`)"
-                                                :title="payment_item.payment_type === 'honorario' ? 'Editar Honorário' : 'Editar Detalhes do Caso/Pagamento'"
+                                                @click="payment_item.payment_type === 'honorario' ? openEditFeeDialog(payment_item) : openEditPaymentModal(payment_item)"
+                                                :title="payment_item.payment_type === 'honorario' ? 'Editar Honorário' : 'Editar Pagamento'"
                                             >
                                                 <Edit3 class="h-3.5 w-3.5 text-gray-500 hover:text-indigo-600" />
                                             </Button>
                                         </div>
                                     </div>
-
                                     <Separator class="my-2" />
-
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
-                                        <p><span class="font-medium">Tipo Original:</span> {{ getPaymentTypeLabel(payment_item.payment_type) }}</p>
+                                        <p><span class="font-medium">Tipo:</span> {{ getPaymentTypeLabel(payment_item.payment_type) }}</p>
                                         <p><span class="font-medium">Método:</span> {{ payment_item.payment_method || 'N/A' }}</p>
-
-                                        <template v-if="payment_item.down_payment_amount && parseFloat(String(payment_item.down_payment_amount)) > 0 && payment_item.total_amount === payment_item.down_payment_amount && payment_item.payment_type !== 'honorario'">
-                                            <p><span class="font-medium">Este Registro:</span> Entrada</p>
-                                            <p><span class="font-medium">Data da Entrada:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
+                                        
+                                        <template v-if="payment_item.payment_type === 'honorario'">
+                                            <p><span class="font-medium">Vencimento:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
+                                            <p v-if="payment_item.down_payment_date"><span class="font-medium">Pago em:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
                                         </template>
-
-                                        <template v-else-if="payment_item.payment_type === 'honorario'">
-                                            <p><span class="font-medium">Este Registro:</span> Honorário</p>
-                                            <p><span class="font-medium">Data de Vencimento:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
-                                            <p v-if="payment_item.down_payment_date"><span class="font-medium">Data do Pagamento:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
+                                        <template v-else> <p><span class="font-medium">Vencimento:</span> {{ formatDate(payment_item.first_installment_due_date || payment_item.down_payment_date) }}</p>
+                                            <p v-if="payment_item.status === 'paid' && payment_item.down_payment_date"><span class="font-medium">Pago em:</span> {{ formatDate(payment_item.down_payment_date) }}</p>
                                         </template>
-
-                                        <template v-else-if="payment_item.payment_type === 'parcelado' && payment_item.number_of_installments && payment_item.number_of_installments > 0">
-                                            <p><span class="font-medium">Vencimento da Parcela:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
-                                            <p><span class="font-medium">Valor da Parcela:</span> {{ formatCurrency(payment_item.value_of_installment) }}</p>
-                                            <p v-if="payment_item.number_of_installments > 1"><span class="font-medium">Plano Total:</span> {{ payment_item.number_of_installments }} parcelas</p>
-                                        </template>
-
-                                        <template v-else-if="payment_item.payment_type === 'a_vista'">
-                                            <p><span class="font-medium">Tipo do Registro:</span> Pagamento Único à Vista</p>
-                                            <p><span class="font-medium">Data do Pagamento:</span> {{ formatDate(payment_item.first_installment_due_date) }}</p>
-                                        </template>
+                                        
+                                        <p v-if="payment_item.interest_amount && parseFloat(String(payment_item.interest_amount)) > 0" class="text-red-600 dark:text-red-400">
+                                            <span class="font-medium">Juros Pagos:</span> {{ formatCurrency(payment_item.interest_amount) }}
+                                        </p>
                                     </div>
-
                                      <p v-if="payment_item.notes" class="text-xs text-gray-600 dark:text-gray-400 mt-2 whitespace-pre-wrap"><span class="font-medium">Observações:</span> {{ payment_item.notes }}</p>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">Registrado em: {{ formatDate(payment_item.created_at, true) }}</p>
                                 </CardContent>
@@ -915,282 +1018,9 @@ const totalPaymentsAmount = computed(() => {
                         <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum pagamento registrado para este caso.</p>
                     </div>
 
-                    <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
-                         <div class="flex justify-between items-center">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
-                            <Dialog :open="showUploadProcessDocumentDialog" @update:open="showUploadProcessDocumentDialog = $event">
-                                <DialogTrigger as-child>
-                                    <Button variant="outline" size="sm" @click="showUploadProcessDocumentDialog = true" :disabled="isArchived">
-                                        <PlusCircle class="h-4 w-4 mr-2" /> Adicionar Documento
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent class="sm:max-w-lg">
-                                    <DialogHeader>
-                                        <DialogTitle>Adicionar Novo Documento ao Caso</DialogTitle>
-                                        <DialogDescription>
-                                            Selecione um arquivo e adicione uma descrição opcional.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <form @submit.prevent="submitProcessDocument" class="space-y-4 mt-4">
-                                        <div>
-                                            <Label for="processDocumentFile" class="text-sm font-medium">Arquivo</Label>
-                                            <div class="mt-1 flex items-center h-10 border border-input bg-background rounded-md ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-                                                <Input
-                                                    id="processDocumentFile"
-                                                    type="file"
-                                                    ref="processDocumentFileInputRef"
-                                                    @input="processDocumentForm.file = ($event.target as HTMLInputElement)?.files?.[0] || null"
-                                                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-900/50 dark:file:text-indigo-300 dark:hover:file:bg-indigo-800/50 h-full focus-visible:ring-0 focus-visible:ring-offset-0 border-0 shadow-none"
-                                                    required
-                                                />
-                                            </div>
-                                            <div v-if="processDocumentForm.progress" class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-2">
-                                                <div class="bg-indigo-600 h-2.5 rounded-full" :style="{ width: processDocumentForm.progress.percentage + '%' }"></div>
-                                            </div>
-                                            <div v-if="processDocumentForm.errors.file" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                                                {{ processDocumentForm.errors.file }}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <Label for="processDocumentDescription" class="text-sm font-medium">Descrição (Opcional)</Label>
-                                            <Textarea
-                                                id="processDocumentDescription"
-                                                v-model="processDocumentForm.description"
-                                                placeholder="Descrição breve do documento..."
-                                                rows="3"
-                                                class="mt-1 text-sm"
-                                            />
-                                            <div v-if="processDocumentForm.errors.description" class="text-sm text-red-600 dark:text-red-400 mt-1">
-                                                {{ processDocumentForm.errors.description }}
-                                            </div>
-                                        </div>
-                                        <DialogFooter class="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
-                                            <DialogClose as-child>
-                                                <Button variant="outline" type="button" @click="showUploadProcessDocumentDialog = false; processDocumentForm.reset(); if(processDocumentFileInputRef) processDocumentFileInputRef.value = ''; processDocumentForm.clearErrors();">Cancelar</Button>
-                                            </DialogClose>
-                                            <Button type="submit" :disabled="processDocumentForm.processing">
-                                                <UploadCloud class="mr-2 h-4 w-4" v-if="!processDocumentForm.processing" />
-                                                <svg v-else class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                </svg>
-                                                {{ processDocumentForm.processing ? 'Enviando...' : 'Enviar Documento' }}
-                                            </Button>
-                                        </DialogFooter>
-                                    </form>
-                                </DialogContent>
-                            </Dialog>
-                        </div>
-                         <div v-if="process.documents && process.documents.length > 0" class="space-y-3">
-                            <Card v-for="doc in process.documents" :key="doc.id" class="hover:shadow-md transition-shadow">
-                                <CardContent class="p-3 flex items-center justify-between gap-3">
-                                    <div class="flex items-center gap-3 min-w-0">
-                                        <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                        <div class="flex-grow min-w-0">
-                                            <a :href="doc.url" target="_blank" :download="doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.name }}</a>
-                                            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                                Enviado em: {{ formatDate(doc.uploaded_at || doc.created_at) }} {{ doc.size ? `(${(Number(doc.size) / (1024*1024)).toFixed(2)} MB)` : '' }} </p>
-                                            <p v-if="doc.description" class="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-words">{{ doc.description }}</p>
-                                        </div>
-                                    </div>
-                                    <div class="flex-shrink-0 space-x-1">
-                                        <a :href="doc.url" target="_blank" :download="doc.name">
-                                            <Button variant="ghost" size="icon" class="h-8 w-8" title="Baixar documento">
-                                                <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
-                                            </Button>
-                                        </a>
-                                        <Button variant="ghost" size="icon" class="h-8 w-8" @click="openDeleteProcessDocumentDialog(doc)" title="Excluir documento" :disabled="isArchived">
-                                            <Trash2 class="h-4 w-4 text-gray-500 hover:text-red-600" />
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                        <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum documento anexado.</p>
                     </div>
-
-                    <div v-if="activeMainTab === 'history'" class="space-y-4 py-4">
-                         <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Histórico de Atividades</h3>
-                         <div v-if="process.history_entries && process.history_entries.length > 0" class="space-y-3">
-                            <Card v-for="entry in process.history_entries" :key="entry.id" class="bg-gray-50 dark:bg-gray-800/60">
-                                <CardContent class="p-3 text-xs">
-                                   <p><span class="font-semibold">{{ entry.user?.name || entry.user_name || 'Sistema' }}</span> {{ entry.action?.toLowerCase() || 'realizou uma ação' }}: <span class="text-gray-700 dark:text-gray-300">{{ entry.description }}</span></p>
-                                    <p class="text-gray-500 dark:text-gray-400 mt-0.5">{{ formatDate(entry.created_at, true) }}</p>
-                                </CardContent>
-                            </Card>
-                        </div>
-                        <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">Nenhum histórico de atividades.</p>
-                    </div>
-                </div>
             </div>
         </div>
-
-        <Dialog :open="showDeleteProcessDialog" @update:open="showDeleteProcessDialog = $event">
-            <DialogContent class="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Confirmar Exclusão do Caso</DialogTitle>
-                    <DialogDescription>
-                        Tem certeza de que deseja excluir o caso <strong class="font-medium">"{{ process.title }}"</strong>?
-                        Esta ação não poderá ser desfeita e todos os dados associados (tarefas, documentos, anotações, pagamentos) também poderão ser afetados.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
-                    <Button variant="outline" type="button" @click="showDeleteProcessDialog = false">Cancelar</Button>
-                    <Button variant="destructive" :disabled="processDeleteForm.processing" @click="submitDeleteProcess">
-                        <svg v-if="processDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {{ processDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog :open="showDeleteProcessAnnotationDialog" @update:open="showDeleteProcessAnnotationDialog = $event">
-            <DialogContent class="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Confirmar Exclusão de Anotação</DialogTitle>
-                    <DialogDescription v-if="processAnnotationToDelete">
-                        Tem certeza de que deseja excluir esta anotação?
-                        <blockquote class="mt-2 p-2 border-l-4 border-gray-300 bg-gray-50 dark:bg-gray-700 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                            {{ processAnnotationToDelete.content.substring(0, 100) }}{{ processAnnotationToDelete.content.length > 100 ? '...' : '' }}
-                        </blockquote>
-                        Esta ação não poderá ser desfeita.
-                    </DialogDescription>
-                     <DialogDescription v-else>
-                        Tem certeza de que deseja excluir esta anotação? Esta ação não poderá ser desfeita.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
-                    <Button variant="outline" type="button" @click="showDeleteProcessAnnotationDialog = false; processAnnotationToDelete = null;">Cancelar</Button>
-                    <Button variant="destructive" :disabled="processAnnotationDeleteForm.processing" @click="submitDeleteProcessAnnotation">
-                         <svg v-if="processAnnotationDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {{ processAnnotationDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog :open="showDeleteProcessDocumentDialog" @update:open="showDeleteProcessDocumentDialog = $event">
-            <DialogContent class="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Confirmar Exclusão de Documento</DialogTitle>
-                    <DialogDescription v-if="processDocumentToDelete">
-                        Tem certeza de que deseja excluir o documento <strong class="font-medium">"{{ processDocumentToDelete.name }}"</strong>? Esta ação não poderá ser desfeita.
-                    </DialogDescription>
-                     <DialogDescription v-else>
-                        Tem certeza de que deseja excluir este documento? Esta ação não poderá ser desfeita.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
-                    <DialogClose as-child><Button variant="outline" type="button" @click="showDeleteProcessDocumentDialog = false; processDocumentToDelete = null;">Cancelar</Button></DialogClose>
-                    <Button variant="destructive" :disabled="processDocumentDeleteForm.processing" @click="submitDeleteProcessDocument">
-                        <svg v-if="processDocumentDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {{ processDocumentDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog :open="showTaskDialog" @update:open="showTaskDialog = $event">
-            <DialogContent class="sm:max-w-lg">
-                <DialogHeader>
-                    <DialogTitle>{{ editingTask ? 'Editar Tarefa' : 'Nova Tarefa para o Caso' }}</DialogTitle>
-                    <DialogDescription>
-                        {{ editingTask ? 'Modifique os detalhes da tarefa.' : 'Preencha os detalhes da nova tarefa.' }}
-                    </DialogDescription>
-                </DialogHeader>
-                <form @submit.prevent="submitProcessTask" class="space-y-4 mt-4">
-                    <div>
-                        <Label for="taskTitle">Título <span class="text-red-500">*</span></Label>
-                        <Input id="taskTitle" v-model="taskForm.title" required />
-                        <div v-if="taskForm.errors.title" class="text-sm text-red-500 mt-1">{{ taskForm.errors.title }}</div>
-                    </div>
-                    <div>
-                        <Label for="taskDescription">Descrição</Label>
-                        <Textarea id="taskDescription" v-model="taskForm.description" rows="3" />
-                        <div v-if="taskForm.errors.description" class="text-sm text-red-500 mt-1">{{ taskForm.errors.description }}</div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <Label for="taskDueDate">Data de Vencimento</Label>
-                            <Input id="taskDueDate" type="date" v-model="taskForm.due_date" />
-                             <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
-                        </div>
-                        <div>
-                            <Label for="taskResponsible">Responsável</Label>
-                            <Select v-model="taskForm.responsible_user_id">
-                                <SelectTrigger id="taskResponsible">
-                                    <SelectValue placeholder="Selecionar responsável" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem :value="null">Ninguém</SelectItem>
-                                    <SelectItem v-for="user in props.users" :key="user.id" :value="String(user.id)">
-                                        {{ user.name }}
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <div v-if="taskForm.errors.responsible_user_id" class="text-sm text-red-500 mt-1">{{ taskForm.errors.responsible_user_id }}</div>
-                        </div>
-                    </div>
-                     <div>
-                        <Label for="taskStatus">Status da Tarefa</Label>
-                        <Select v-model="taskForm.status">
-                            <SelectTrigger id="taskStatus">
-                                <SelectValue placeholder="Selecionar status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem v-for="statusOpt in taskStatusOptions" :key="statusOpt.key" :value="statusOpt.key">
-                                    {{ statusOpt.label }}
-                                </SelectItem>
-                            </SelectContent>
-                        </Select>
-                         <div v-if="taskForm.errors.status" class="text-sm text-red-500 mt-1">{{ taskForm.errors.status }}</div>
-                    </div>
-                    <DialogFooter class="mt-6">
-                        <DialogClose as-child><Button type="button" variant="outline" @click="showTaskDialog = false; taskForm.reset(); editingTask = null; taskForm.clearErrors();">Cancelar</Button></DialogClose>
-                        <Button type="submit" :disabled="taskForm.processing">
-                            <PlusCircle class="mr-2 h-4 w-4" v-if="!editingTask && !taskForm.processing" />
-                            <Edit3 class="mr-2 h-4 w-4" v-if="editingTask && !taskForm.processing" />
-                             <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            {{ taskForm.processing ? 'Salvando...' : (editingTask ? 'Salvar Alterações' : 'Salvar Tarefa') }}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog :open="showDeleteTaskDialog" @update:open="showDeleteTaskDialog = $event">
-            <DialogContent class="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Confirmar Exclusão de Tarefa</DialogTitle>
-                    <DialogDescription v-if="taskToDelete">
-                        Tem certeza de que deseja excluir a tarefa <strong class="font-medium">"{{ taskToDelete.title }}"</strong>?
-                        Esta ação não poderá ser desfeita.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter class="mt-4">
-                    <Button variant="outline" @click="showDeleteTaskDialog = false; taskToDelete = null;">Cancelar</Button>
-                    <Button variant="destructive" @click="submitDeleteTask" :disabled="taskDeleteForm.processing">
-                         <svg v-if="taskDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {{ taskDeleteForm.processing ? 'Excluindo...' : 'Confirmar Exclusão' }}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
 
         <Dialog :open="showAddFeeDialog" @update:open="showAddFeeDialog = $event">
             <DialogContent class="sm:max-w-lg">
@@ -1342,6 +1172,64 @@ const totalPaymentsAmount = computed(() => {
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             {{ editFeeForm.processing ? 'Salvando...' : 'Salvar Alterações' }}
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog :open="showEditPaymentDialog" @update:open="showEditPaymentDialog = $event">
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Editar Pagamento</DialogTitle>
+                    <DialogDescription v-if="editingPayment">
+                        <p class="mb-2">Atualize o status e a data de pagamento para:</p>
+                        <p class="text-sm"><strong>ID:</strong> {{ editingPayment.id }}</p>
+                        <p class="text-sm"><strong>Valor:</strong> {{ formatCurrency(editingPayment.total_amount) }}</p>
+                        <p class="text-sm"><strong>Vencimento:</strong> {{ formatDate(editingPayment.first_installment_due_date || editingPayment.down_payment_date) }}</p>
+                        <p class="text-sm truncate" :title="editingPayment.notes || ''"><strong>Notas:</strong> {{ editingPayment.notes || 'N/A' }}</p>
+                    </DialogDescription>
+                </DialogHeader>
+                <form @submit.prevent="submitEditPayment" class="space-y-4 mt-4">
+                    <div>
+                        <Label for="editPaymentStatus" class="text-sm">Status do Pagamento <span class="text-red-500">*</span></Label>
+                        <Select v-model="editPaymentForm.status" required>
+                            <SelectTrigger id="editPaymentStatus">
+                                <SelectValue placeholder="Selecione o status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectGroup>
+                                    <SelectLabel>Status</SelectLabel>
+                                    <SelectItem v-for="statusOpt in props.paymentStatuses" :key="statusOpt.key" :value="statusOpt.key">
+                                        {{ statusOpt.label }}
+                                    </SelectItem>
+                                </SelectGroup>
+                            </SelectContent>
+                        </Select>
+                        <div v-if="editPaymentForm.errors.status" class="text-sm text-red-500 mt-1">{{ editPaymentForm.errors.status }}</div>
+                    </div>
+
+                    <div v-if="editPaymentForm.status === 'paid'">
+                        <Label for="editPaymentActualDate">Data de Pagamento Efetivo <span class="text-red-500">*</span></Label>
+                        <Input id="editPaymentActualDate" type="date" v-model="editPaymentForm.payment_date" :required="editPaymentForm.status === 'paid'" />
+                        <div v-if="editPaymentForm.errors.payment_date" class="text-sm text-red-500 mt-1">{{ editPaymentForm.errors.payment_date }}</div>
+                    </div>
+
+                    <div v-if="showInterestFieldForEditPayment">
+                        <Label for="editPaymentInterestAmount" class="text-sm">Valor dos Juros (R$)</Label>
+                        <Input id="editPaymentInterestAmount" type="number" step="0.01" min="0" v-model="editPaymentForm.interest_amount" placeholder="Ex: 15.50" />
+                        <div v-if="editPaymentForm.errors.interest_amount" class="text-sm text-red-500 mt-1">{{ editPaymentForm.errors.interest_amount }}</div>
+                    </div>
+
+                    <DialogFooter class="mt-6">
+                        <DialogClose as-child><Button type="button" variant="outline" @click="showEditPaymentDialog = false; editPaymentForm.reset(); editingPayment = null; editPaymentForm.clearErrors();">Cancelar</Button></DialogClose>
+                        <Button type="submit" :disabled="editPaymentForm.processing">
+                            <Edit3 class="mr-2 h-4 w-4" v-if="!editPaymentForm.processing" />
+                            <svg v-if="editPaymentForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {{ editPaymentForm.processing ? 'Salvando...' : 'Salvar Alterações' }}
                         </Button>
                     </DialogFooter>
                 </form>

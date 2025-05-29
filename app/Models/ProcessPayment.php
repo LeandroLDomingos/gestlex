@@ -37,6 +37,7 @@ class ProcessPayment extends Model
         'down_payment_date',    // Data da entrada
         'number_of_installments',// Número total de parcelas do plano original
         'value_of_installment', // Valor desta parcela específica
+        'interest_amount',
         'status',               // Status desta transação: pending, paid, failed, refunded
         'first_installment_due_date', // Data de vencimento desta transação/parcela
         'notes',
