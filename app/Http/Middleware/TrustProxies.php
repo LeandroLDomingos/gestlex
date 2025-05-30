@@ -10,6 +10,10 @@ class TrustProxies extends Middleware
     // aceitar todos os proxies (dentro do Docker)
     protected $proxies = '*';
 
-    // pegar todos os headers X-Forwarded-*
-    protected $headers = Request::HEADER_X_FORWARDED_ALL;
+     protected $headers =
+        Request::HEADER_X_FORWARDED_FOR |
+        Request::HEADER_X_FORWARDED_HOST |
+        Request::HEADER_X_FORWARDED_PORT |
+        Request::HEADER_X_FORWARDED_PROTO | // Certifique-se que este está aqui
+        Request::HEADER_X_FORWARDED_AWS_ELB; // Ou Request::HEADER_X_FORWARDED_PREFIX nas versões mais novas
 }
