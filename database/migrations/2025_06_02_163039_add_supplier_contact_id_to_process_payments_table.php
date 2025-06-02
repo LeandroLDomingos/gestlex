@@ -11,7 +11,8 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('process_payments', function (Blueprint $table) {
-            $table->decimal('interest_amount', 15, 2)->nullable()->after('value_of_installment')->comment('Valor dos juros pagos manualmente');
+            // No método up() da migração
+            $table->foreignUuid('supplier_contact_id')->nullable()->constrained('contacts')->onDelete('set null'); // Ou o nome da sua tabela de contatos
         });
     }
 
@@ -21,7 +22,7 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::table('process_payments', function (Blueprint $table) {
-            $table->dropColumn('interest_amount');
+            $table->dropColumn('supplier_contact_id');
         });
     }
 };

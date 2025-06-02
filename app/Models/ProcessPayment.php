@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Enums\PaymentType; // Seu Enum de tipos de pagamento
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProcessPayment extends Model
 {
@@ -18,6 +19,7 @@ class ProcessPayment extends Model
     public const STATUS_PAID = 'paid';
     public const STATUS_FAILED = 'failed';
     public const STATUS_REFUNDED = 'refunded';
+    public const STATUS_OVERDUE = 'overdue'; // <<< CONSTANTE ADICIONADA
 
     // Mapeamento de status para rótulos em Português
     public static array $statuses = [
@@ -25,22 +27,25 @@ class ProcessPayment extends Model
         self::STATUS_PAID => 'Pago',
         self::STATUS_FAILED => 'Falhou',
         self::STATUS_REFUNDED => 'Reembolsado',
+        self::STATUS_OVERDUE => 'Vencido', // <<< RÓTULO ADICIONADO
     ];
 
     protected $fillable = [
-        'id', // Se não estiver usando HasUuids para auto-geração, mantenha. Caso contrário, pode remover.
+        'id',
         'process_id',
-        'total_amount',         // Valor da transação (entrada, parcela, pagamento único)
-        'down_payment_amount',  // Valor da entrada (se esta transação for uma entrada)
-        'payment_type',         // Tipo original do pagamento (a_vista, parcelado)
+        'total_amount',
+        'down_payment_amount',
+        'payment_type',
         'payment_method',
-        'down_payment_date',    // Data da entrada
-        'number_of_installments',// Número total de parcelas do plano original
-        'value_of_installment', // Valor desta parcela específica
+        'down_payment_date',
+        'number_of_installments',
+        'value_of_installment',
         'interest_amount',
-        'status',               // Status desta transação: pending, paid, failed, refunded
-        'first_installment_due_date', // Data de vencimento desta transação/parcela
+        'status',
+        'first_installment_due_date',
         'notes',
+        'transaction_nature',
+        'supplier_contact_id',
     ];
 
     protected $casts = [
@@ -49,9 +54,10 @@ class ProcessPayment extends Model
         'value_of_installment' => 'decimal:2',
         'down_payment_date' => 'date',
         'first_installment_due_date' => 'date',
-        'payment_type' => PaymentType::class, // Seu Enum
+        'payment_type' => PaymentType::class,
         'number_of_installments' => 'integer',
-        'status' => 'string', // O tipo ENUM na migration já cuida da restrição no DB
+        'status' => 'string',
+        'transaction_nature' => 'string',
     ];
 
     /**
@@ -76,9 +82,19 @@ class ProcessPayment extends Model
         return collect(self::$statuses)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
     }
 
-
-    public function process()
+    /**
+     * Get the process that owns the payment.
+     */
+    public function process(): BelongsTo
     {
         return $this->belongsTo(Process::class, 'process_id');
+    }
+
+    /**
+     * Get the supplier contact associated with this payment (for expenses).
+     */
+    public function supplierContact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'supplier_contact_id');
     }
 }
