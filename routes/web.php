@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\ExpenseController;
-use App\Http\Controllers\FinancialDashboardController;
 use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
@@ -83,12 +82,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/processes/{process}/fees/{fee}', [App\Http\Controllers\ProcessController::class, 'destroyFee'])
         ->name('processes.fees.destroy');
 
-    Route::resource('financial-transactions', FinancialTransactionController::class)
-        ->names('financial-transactions');
-
     Route::resource('expenses', ExpenseController::class);
 
-    Route::get('/financial-dashboard', [FinancialDashboardController::class, 'index'])->name('financial.dashboard');
+    Route::get('/financial-transactions', [FinancialTransactionController::class, 'index'])
+    ->name('financial-transactions.index');
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)

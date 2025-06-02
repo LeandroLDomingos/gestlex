@@ -80,9 +80,10 @@ class ProcessController extends Controller
             ->with([
                 'responsible:id,name',
                 'contact:id,name,business_name,type',
-                'payments'
+                // 'payments' // O withSum já faz uma subquery, não precisamos carregar todos os pagamentos aqui para a listagem principal, a menos que precise de outros dados deles.
             ])
-            ->withSum('payments as payments_sum_total_amount', 'total_amount')
+            // ATUALIZADO: Soma total_amount + interest_amount
+            ->withSum('payments as payments_sum_total_amount', DB::raw('total_amount + IFNULL(interest_amount, 0)'))
             ->withCount([
                 'tasks as pending_tasks_count' => function (Builder $query) {
                     $query->whereNotIn('status', [Task::STATUS_COMPLETED, Task::STATUS_CANCELLED]);
@@ -122,13 +123,13 @@ class ProcessController extends Controller
         } elseif ($sortBy === 'contact.name') {
             $processesQuery->leftJoin('contacts', 'processes.contact_id', '=', 'contacts.id')
                 ->orderBy('contacts.name', $sortDirection)
-                ->select('processes.*');
+                ->select('processes.*'); // É importante selecionar explicitamente para evitar conflitos de ID
         } elseif ($sortBy === 'responsible.name') {
             $processesQuery->leftJoin('users', 'processes.responsible_id', '=', 'users.id')
                 ->orderBy('users.name', $sortDirection)
                 ->select('processes.*');
         } elseif (in_array($sortBy, $directSortableColumns)) {
-            if ($sortBy === 'payments_sum_total_amount') {
+            if ($sortBy === 'payments_sum_total_amount') { // Ordenação pela soma agora inclui juros
                 $processesQuery->orderBy('payments_sum_total_amount', $sortDirection);
             } else {
                 $processesQuery->orderBy($sortBy, $sortDirection);
@@ -136,9 +137,24 @@ class ProcessController extends Controller
         }
 
         $processes = $processesQuery->paginate(15)->withQueryString();
+
+        // Adiciona os labels para cada processo após a paginação
+        $processes->getCollection()->transform(function ($process) {
+            if (method_exists($process, 'getWorkflowLabelAttribute'))
+                $process->append('workflow_label');
+            if (method_exists($process, 'getStageLabelAttribute'))
+                $process->append('stage_label');
+            if (method_exists($process, 'getPriorityLabelAttribute'))
+                $process->append('priority_label');
+            if (method_exists($process, 'getStatusLabelAttribute'))
+                $process->append('status_label');
+            return $process;
+        });
+
+
         $baseCountQueryForSidebar = function () use ($search, $responsibleFilter, $priorityFilter, $statusFilter, $dateFromFilter, $dateToFilter) {
             $query = Process::query();
-            $query = $this->applySearchFilters($query, $search);
+            $query = $this->applySearchFilters($query, $search); // Reutiliza a função de filtro de busca
             $query
                 ->when($responsibleFilter, fn($q, $val) => $q->where('responsible_id', $val))
                 ->when($priorityFilter, fn($q, $val) => $q->where('priority', $val))
@@ -451,42 +467,123 @@ class ProcessController extends Controller
 
         $validatedData = $request->validate([
             'description' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0.01',
-            'fee_date' => 'required|date_format:Y-m-d',      // Data de Vencimento do Honorário
+            'amount' => 'required|numeric|min:0.01', // Valor total do honorário
             'payment_method' => 'nullable|string|max:100',
-            'is_paid' => 'required|boolean',                  // Se o honorário foi pago
-            'payment_date' => 'nullable|date_format:Y-m-d|required_if:is_paid,true', // Data do Pagamento (obrigatória se is_paid for true)
             'notes' => 'nullable|string|max:1000',
+
+            // Campos para pagamento único (se is_installment for false)
+            // 'fee_date' é o que o frontend manda como 'first_installment_date' para pagamento único
+            'fee_date' => ['nullable', 'date_format:Y-m-d', Rule::requiredIf(!$request->input('is_installment', false))],
+            'is_paid' => ['nullable', 'boolean', Rule::requiredIf(!$request->input('is_installment', false))], // Se o honorário (único) foi pago
+            'payment_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    return !$request->input('is_installment', false) && $request->input('is_paid', false);
+                })
+            ], // Data do Pagamento (obrigatória se is_paid for true e não for parcelado)
+
+            // Campos para parcelamento
+            'is_installment' => 'sometimes|boolean',
+            'number_of_installments' => ['nullable', 'integer', 'min:2', Rule::requiredIf($request->input('is_installment', false) === true)],
+            // 'first_installment_date' é o que o frontend manda para a data da 1ª parcela
+            'first_installment_date' => ['nullable', 'date_format:Y-m-d', Rule::requiredIf($request->input('is_installment', false) === true)],
+            'is_first_payment_paid' => ['nullable', 'boolean', Rule::requiredIf($request->input('is_installment', false) === true)], // Se a 1ª parcela/entrada foi paga
+            'actual_payment_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+                Rule::requiredIf(function () use ($request) {
+                    return $request->input('is_installment', false) === true && $request->input('is_first_payment_paid', false);
+                })
+            ], // Data do pagamento da 1ª parcela/entrada
         ]);
 
         DB::beginTransaction();
         try {
-            $status = $validatedData['is_paid'] ? ProcessPayment::STATUS_PAID : ProcessPayment::STATUS_PENDING;
-            $paymentDate = $validatedData['is_paid'] && !empty($validatedData['payment_date']) ? Carbon::parse($validatedData['payment_date']) : null;
+            $isInstallment = filter_var($request->input('is_installment', false), FILTER_VALIDATE_BOOLEAN);
+            $totalHonorariumAmount = (float) $validatedData['amount'];
+            $paymentMethod = $validatedData['payment_method'] ?? null;
+            $generalNotes = $validatedData['notes'] ?? '';
 
-            // Concatenar descrição e notas, se houver notas adicionais
-            $finalNotes = $validatedData['description'];
-            if (!empty($validatedData['notes'])) {
-                $finalNotes .= "\nObservações Adicionais: " . $validatedData['notes'];
+            if (!$isInstallment) {
+                // Pagamento Único de Honorário
+                $dueDate = Carbon::parse($validatedData['fee_date']); // 'fee_date' da validação
+                $isPaid = filter_var($validatedData['is_paid'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $actualPaymentDate = $isPaid && !empty($validatedData['payment_date']) ? Carbon::parse($validatedData['payment_date']) : null;
+                $status = $isPaid ? ProcessPayment::STATUS_PAID : ProcessPayment::STATUS_PENDING;
+
+                $finalNotes = $validatedData['description'];
+                if (!empty($generalNotes)) {
+                    $finalNotes .= "\nObservações Adicionais: " . $generalNotes;
+                }
+
+                $process->payments()->create([
+                    'id' => Str::uuid()->toString(),
+                    'total_amount' => $totalHonorariumAmount,
+                    'payment_type' => PaymentType::HONORARIO,
+                    'payment_method' => $paymentMethod,
+                    'down_payment_date' => $actualPaymentDate, // Data de pagamento efetivo
+                    'number_of_installments' => 1,
+                    'value_of_installment' => $totalHonorariumAmount,
+                    'status' => $status,
+                    'first_installment_due_date' => $dueDate, // Data de vencimento
+                    'notes' => $finalNotes,
+                ]);
+                $historyDescription = "Honorários '{$validatedData['description']}' (pagamento único) no valor de " . number_format($totalHonorariumAmount, 2, ',', '.') . " adicionados.";
+
+            } else {
+                // Parcelamento de Honorários
+                $numberOfInstallments = (int) ($validatedData['number_of_installments'] ?? 1);
+                if ($numberOfInstallments < 1)
+                    $numberOfInstallments = 1; // Garante pelo menos 1
+
+                $baseInstallmentValue = round($totalHonorariumAmount / $numberOfInstallments, 2);
+                $currentDueDate = Carbon::parse($validatedData['first_installment_date']); // 'first_installment_date' da validação
+
+                $isFirstPaid = filter_var($validatedData['is_first_payment_paid'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $firstActualPaymentDate = $isFirstPaid && !empty($validatedData['actual_payment_date']) ? Carbon::parse($validatedData['actual_payment_date']) : null;
+
+                for ($i = 1; $i <= $numberOfInstallments; $i++) {
+                    $currentInstallmentValue = ($i === $numberOfInstallments)
+                        ? round($totalHonorariumAmount - ($baseInstallmentValue * ($numberOfInstallments - 1)), 2)
+                        : $baseInstallmentValue;
+
+                    $parcelNotes = $validatedData['description'] . " - Parcela {$i}/{$numberOfInstallments}";
+                    if (!empty($generalNotes)) {
+                        $parcelNotes .= "\nObservações Adicionais: " . $generalNotes;
+                    }
+
+                    $status = ProcessPayment::STATUS_PENDING;
+                    $actualPaymentDateForThisInstallment = null;
+
+                    if ($i === 1 && $isFirstPaid) {
+                        $status = ProcessPayment::STATUS_PAID;
+                        $actualPaymentDateForThisInstallment = $firstActualPaymentDate;
+                    }
+
+                    $process->payments()->create([
+                        'id' => Str::uuid()->toString(),
+                        'total_amount' => $currentInstallmentValue,
+                        'payment_type' => PaymentType::HONORARIO,
+                        'payment_method' => ($i === 1 && $isFirstPaid) ? $paymentMethod : null, // Método só na 1ª se paga
+                        'down_payment_date' => $actualPaymentDateForThisInstallment,
+                        'number_of_installments' => $numberOfInstallments,
+                        'value_of_installment' => $currentInstallmentValue,
+                        'status' => $status,
+                        'first_installment_due_date' => $currentDueDate->copy()->toDateString(),
+                        'notes' => $parcelNotes,
+                    ]);
+
+                    if ($i < $numberOfInstallments) {
+                        $currentDueDate->addMonthNoOverflow();
+                    }
+                }
+                $historyDescription = "Honorários '{$validatedData['description']}' no valor total de " . number_format($totalHonorariumAmount, 2, ',', '.') . " adicionados em {$numberOfInstallments} parcela(s).";
             }
-
-            $process->payments()->create([
-                'id' => Str::uuid()->toString(),
-                'total_amount' => (float) $validatedData['amount'],
-                'down_payment_amount' => 0, // Honorários não têm "entrada" neste contexto
-                'payment_type' => PaymentType::HONORARIO,
-                'payment_method' => $validatedData['payment_method'],
-                'down_payment_date' => $paymentDate, // Usamos down_payment_date para a data de pagamento efetivo do honorário
-                'number_of_installments' => 1,
-                'value_of_installment' => (float) $validatedData['amount'],
-                'status' => $status,
-                'first_installment_due_date' => Carbon::parse($validatedData['fee_date']), // Data de Vencimento do honorário
-                'notes' => $finalNotes,
-            ]);
 
             $process->historyEntries()->create([
                 'action' => 'Honorários Adicionados',
-                'description' => "Honorários '{$validatedData['description']}' no valor de " . number_format($validatedData['amount'], 2, ',', '.') . " adicionados.",
+                'description' => $historyDescription,
                 'user_id' => Auth::id(),
             ]);
 
@@ -495,7 +592,6 @@ class ProcessController extends Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
-            // Para Inertia, é melhor retornar com erros para o modal
             return back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -503,7 +599,7 @@ class ProcessController extends Controller
             return back()->with('error', 'Ocorreu um erro inesperado ao adicionar os honorários: ' . $e->getMessage());
         }
     }
-
+    
     // NOVO MÉTODO PARA ATUALIZAR HONORÁRIOS
     public function updateFee(Request $request, Process $process, ProcessPayment $fee) // Route Model Binding para o ProcessPayment
     {

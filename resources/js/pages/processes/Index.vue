@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
-import Pagination from '@/components/Pagination.vue'; // Presumo que este componente exista
+import Pagination from '@/components/Pagination.vue';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -22,11 +22,11 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select'; // Adicionado SelectGroup
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
-import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle, DollarSign } from 'lucide-vue-next'; // Adicionado DollarSign
+import { Search, PlusCircle, ChevronDown, Filter, ListFilter, ArrowUpDown, SlidersHorizontal, X, CalendarIcon, Archive as ArchiveIcon, AlertTriangle, DollarSign } from 'lucide-vue-next';
 import type { BreadcrumbItem } from '@/types';
 import type { PaginatedResponse } from '@/types/inertia';
 
@@ -62,7 +62,6 @@ interface RelatedContact {
     type?: 'physical' | 'legal';
 }
 
-// Interface Process já inclui payments_sum_amount do seu script
 interface Process {
     id: string;
     title?: string;
@@ -78,7 +77,7 @@ interface Process {
     stage: number;
     stage_label?: string;
     origin?: string | null;
-    payments_sum_amount?: number | string | null; // Mantido como string ou number
+    payments_sum_total_amount?: number | string | null; // ATUALIZADO AQUI
     created_at: string;
     priority?: 'low' | 'medium' | 'high';
     priority_label?: string;
@@ -157,7 +156,7 @@ const sortableColumns: Record<string, string> = {
     title: 'title',
     workflow: 'workflow',
     priority: 'priority',
-    payments_sum_amount: 'payments_sum_amount', // Já estava aqui
+    payments_sum_total_amount: 'payments_sum_total_amount', // ATUALIZADO AQUI
     created_at: 'created_at',
 };
 
@@ -174,14 +173,11 @@ const displayValue = (value: any, fallback: string = 'N/A') => {
 const formatDateForTable = (dateString: string | null | undefined): string => {
     if (!dateString) return 'N/A';
     try {
-        // Tenta normalizar a data para UTC antes de formatar para evitar problemas de fuso horário
         const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString.replace(/-/g, '/') + ' GMT');
-        if (isNaN(date.getTime())) return dateString; // Retorna original se inválida
+        if (isNaN(date.getTime())) return dateString; 
 
         return date.toLocaleDateString('pt-BR', {
             day: '2-digit', month: '2-digit', year: 'numeric',
-            // hour: '2-digit', minute: '2-digit', // Removido hora para simplificar
-            // timeZone: 'UTC' // Comentado pois toLocaleDateString já usa o fuso do browser por padrão
         });
     } catch (e) { return dateString; }
 };
@@ -259,7 +255,7 @@ const handleSort = (columnKey: SortableColumnKey) => {
 };
 
 const applyAllFilters = () => {
-    const queryParams: { [key: string]: string | number | boolean | undefined } = {
+    const queryParams: { [key: string]: string | number | boolean | undefined | null } = { // Permitir null
         sort_by: sortColumn.value,
         sort_direction: sortDirection.value,
     };
@@ -268,7 +264,11 @@ const applyAllFilters = () => {
     
     if (isShowingArchived.value) {
         queryParams.archived = true;
+        // Limpa filtros de workflow e estágio ao mostrar arquivados, se desejado
+        // queryParams.workflow = null; 
+        // queryParams.stage = null;
     } else {
+        queryParams.archived = undefined; // ou false, dependendo de como o backend trata
         if (activeWorkflow.value) queryParams.workflow = activeWorkflow.value;
         if (activeStage.value !== null) queryParams.stage = activeStage.value;
     }
@@ -288,6 +288,10 @@ const applyAllFilters = () => {
     if (filterByDateTo.value) {
         queryParams.date_to = filterByDateTo.value;
     }
+    
+    // Remove chaves com valor null ou undefined para não poluir a URL e usar os defaults do backend
+    Object.keys(queryParams).forEach(key => (queryParams[key as keyof typeof queryParams] == null) && delete queryParams[key as keyof typeof queryParams]);
+
 
     router.get(route('processes.index'), queryParams as any, {
         preserveState: true,
@@ -302,7 +306,7 @@ function resetAdvancedFilters() {
     filterByStatus.value = null;
     filterByDateFrom.value = null;
     filterByDateTo.value = null;
-    applyAllFilters();
+    applyAllFilters(); // Aplica para limpar os filtros na URL também
 }
 
 let searchTimeout: number | undefined;
@@ -313,16 +317,15 @@ watch(searchTerm, () => {
     }, 300);
 });
 
-// --- ALTERAÇÃO: Adicionada coluna "Valor Negociado" ao tableHeaders ---
 const tableHeaders: { key: string; label: string; sortable: boolean, class?: string }[] = [
-    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[20%]' }, // Ajuste de largura
+    { key: 'title', label: 'Título do Caso', sortable: true, class: 'w-[20%]' },
     { key: 'pending_tasks_count', label: 'Pendências', sortable: true, class: 'w-[10%] text-center' },
     { key: 'contact_name', label: 'Contato', sortable: true, class: 'w-[15%]' },
     { key: 'responsible_name', label: 'Responsável', sortable: true, class: 'w-[15%]' },
     { key: 'stage', label: 'Estágio', sortable: true, class: 'w-[10%]' },
-    { key: 'payments_sum_amount', label: 'Valor Total', sortable: true, class: 'w-[10%] text-right' }, // Nova coluna
-    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[10%]' }, // Ajuste de largura
-    { key: 'status', label: 'Status', sortable: true, class: 'w-[10%] text-center' }, // Adicionando Status
+    { key: 'payments_sum_total_amount', label: 'Valor Total', sortable: true, class: 'w-[10%] text-right' }, // ATUALIZADO AQUI
+    { key: 'updated_at', label: 'Última atualização', sortable: true, class: 'w-[10%]' },
+    { key: 'status', label: 'Status', sortable: true, class: 'w-[10%] text-center' },
 ];
 
 </script>
@@ -539,8 +542,7 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                             <option value="workflow">Workflow</option>
                             <option value="priority">Prioridade</option>
                             <option value="status">Status do Caso</option>
-                            <option value="payments_sum_amount">Valor Total</option>
-                            <option value="pending_tasks_count">Pendências</option>
+                            <option value="payments_sum_total_amount">Valor Total</option> <option value="pending_tasks_count">Pendências</option>
                         </select>
                         <Button variant="ghost" size="icon" @click="sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'; applyAllFilters();" class="ml-1 h-9 w-9">
                             <ArrowUpDown class="h-4 w-4" :class="{'transform rotate-180': sortDirection === 'desc'}" />
@@ -600,10 +602,8 @@ const tableHeaders: { key: string; label: string; sortable: boolean, class?: str
                                             {{ displayValue(process_item.stage_label || process_item.stage) }}
                                         </TableCell>
                                         
-                                      
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-right font-mono text-gray-700 dark:text-gray-300">
-                                            {{ formatCurrency(process_item.payments_sum_amount) }}
-                                        </TableCell>
+                                            {{ formatCurrency(process_item.payments_sum_total_amount) }} </TableCell>
                                         
                                         <TableCell class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {{ formatDateForTable(process_item.updated_at) }}

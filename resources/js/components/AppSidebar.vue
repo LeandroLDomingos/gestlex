@@ -31,7 +31,7 @@ const mainNavItems: NavItem[] = [
     },
     {
         title: 'Financias',
-        href: '/financial-dashboard',
+        href: '/financial-transactions',
         icon: DollarSign,
     },
 ];
