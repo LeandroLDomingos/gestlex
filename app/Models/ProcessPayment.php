@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TransactionNature;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -68,7 +69,7 @@ class ProcessPayment extends Model
     protected function statusLabel(): Attribute
     {
         return Attribute::make(
-            get: fn ($value, $attributes) => self::$statuses[$attributes['status']] ?? ucfirst($attributes['status'] ?? 'N/A'),
+            get: fn($value, $attributes) => self::$statuses[$attributes['status']] ?? ucfirst($attributes['status'] ?? 'N/A'),
         );
     }
 
@@ -96,5 +97,27 @@ class ProcessPayment extends Model
     public function supplierContact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'supplier_contact_id');
+    }
+
+    /**
+     * Scope a query to only include income transactions.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeIncome($query)
+    {
+        return $query->where('transaction_nature', TransactionNature::INCOME->value);
+    }
+
+    /**
+     * Scope a query to only include expense transactions.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeExpense($query)
+    {
+        return $query->where('transaction_nature', TransactionNature::EXPENSE->value);
     }
 }
