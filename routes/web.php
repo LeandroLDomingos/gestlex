@@ -13,11 +13,11 @@ Route::get('/', function () {
     return Inertia::render('Welcome');
 })->name('home');
 
+Route::get('dashboard', function () {
+    return Inertia::render('Dashboard');
+})->name('dashboard')->middleware('auth');
 
 Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('Dashboard');
-    })->name('dashboard');
 
     // Rotas para Contatos
     Route::resource('contacts', ContactController::class);

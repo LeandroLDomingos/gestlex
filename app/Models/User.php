@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany; // Import BelongsToMany
 
 class User extends Authenticatable
 {
@@ -46,13 +46,24 @@ class User extends Authenticatable
         ];
     }
 
-    public function roles()
+    /**
+     * The roles that belong to the user.
+     * This relationship uses the 'role_user' pivot table.
+     */
+    public function roles(): BelongsToMany
     {
-        return $this->belongsToMany(Role::class, 'role_user'); // 'role_user' é a tabela pivot
+        // Arguments: Related model, pivot table name, foreign pivot key for current model, foreign pivot key for related model
+        return $this->belongsToMany(Role::class, 'role_user', 'user_id', 'role_id');
     }
 
-    public function permissions()
+    /**
+     * The direct permissions that belong to the user.
+     * This relationship uses the 'permission_user' pivot table.
+     * This is the relationship that was likely causing the error if misconfigured.
+     */
+    public function permissions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class, 'role_permission'); // 'role_permission' é a tabela pivot
+        // Arguments: Related model, pivot table name, foreign pivot key for current model, foreign pivot key for related model
+        return $this->belongsToMany(Permission::class, 'permission_user', 'user_id', 'permission_id');
     }
 }

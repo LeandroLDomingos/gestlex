@@ -96,7 +96,7 @@ class PermissionsRolesAdminSeeder extends Seeder
             // 'id' => Str::uuid(), // Assuming your Role model uses UUIDs and HasUuids trait
             'name' => 'Admin',
             'description' => 'Administrador com todas as permissões',
-            'level' => 1, // Or your highest level
+            'level' => 6, // Or your highest level
         ];
         $adminRole = Role::firstOrCreate(['name' => $adminRoleData['name']], $adminRoleData);
         $this->command->line("  Role: <info>Admin</info> " . ($adminRole->wasRecentlyCreated ? 'criado.' : 'já existe.'));
