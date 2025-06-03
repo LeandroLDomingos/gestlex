@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TransactionNature;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -101,6 +102,15 @@ class ProcessPayment extends Model
         return $this->belongsTo(Contact::class, 'supplier_contact_id');
     }
 
+<<<<<<< HEAD
+=======
+    /**
+     * Scope a query to only include income transactions.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+>>>>>>> f4bf62e1894e6ed593444f82294f076a46e26957
     public function scopeIncome($query)
     {
         return $query->where('transaction_nature', TransactionNature::INCOME->value);
