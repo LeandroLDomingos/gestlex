@@ -84,11 +84,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::resource('expenses', ExpenseController::class);
 
-    Route::get('/financial-transactions', [FinancialTransactionController::class, 'index'])
-        ->name('financial-transactions.index');
-
-    Route::post('/financial-transactions', [FinancialTransactionController::class, 'store'])
-        ->name('financial-transactions.store');
+    Route::resource('financial-transactions', FinancialTransactionController::class);
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)

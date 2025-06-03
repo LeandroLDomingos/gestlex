@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, watchEffect } from 'vue'; // Adicionado watchEffect
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Pagination from '@/components/Pagination.vue';
@@ -61,7 +61,7 @@ interface FinancialTransaction {
     process_id: string | null;
     total_amount: number | string | null;
     interest_amount?: number | string | null;
-    payment_type: string | null;
+    payment_type: string | null; // Assuming 'parcelado' is a possible value here
     transaction_nature?: 'income' | 'expense';
     payment_method: string | null;
     down_payment_date: string | null;
@@ -94,7 +94,7 @@ const props = defineProps<{
         summary_date_from?: string | null;
         summary_date_to?: string | null;
     };
-    paymentTypes: Array<{ value: string; label: string; nature?: 'income' | 'expense' }>;
+    paymentTypes: Array<{ value: string; label: string; nature?: 'income' | 'expense' }>; // Ensure this includes 'parcelado'
     paymentStatuses: Array<{ key: string; label: string }>;
     dashboardSummary?: {
         totalReceivedInPeriod: number;
@@ -258,11 +258,9 @@ function submitDeleteTransaction() {
         onSuccess: () => {
             showDeleteTransactionDialog.value = false;
             transactionToDelete.value = null;
-            // Consider router.reload() or emitting an event if data doesn't refresh automatically
         },
         onError: (errors) => {
             console.error('Erro ao excluir transação:', errors);
-            // Replace alert with a more user-friendly notification if possible
             alert('Falha ao excluir transação. Verifique o console para mais detalhes.');
         }
     });
@@ -271,10 +269,7 @@ function submitDeleteTransaction() {
 // Edit transaction logic (remains unchanged)
 function editTransaction(transaction: FinancialTransaction) {
     if (getTransactionNature(transaction) === 'expense') {
-        // alert(`Editar despesa: ${transaction.id} - ${transaction.notes || 'Sem descrição'}. Rota de edição de despesa a ser implementada.`);
-        // For now, let's assume you might want to open a specific edit modal or navigate
-        // This part can be expanded based on how expense editing is handled
-        router.visit(routeHelper('financial-transactions.edit', transaction.id)); // Or a specific expense edit route
+        router.visit(routeHelper('financial-transactions.edit', transaction.id));
         return;
     }
     if (transaction.payment_type === 'honorario' && transaction.process?.id) {
@@ -282,7 +277,6 @@ function editTransaction(transaction: FinancialTransaction) {
     } else if (transaction.process?.id) {
          router.visit(routeHelper('processes.show', transaction.process.id) + `?tab=payments&payment_to_edit=${transaction.id}`);
     } else {
-        // Replace alert with a more user-friendly notification if possible
         alert('Não é possível editar este tipo de transação diretamente aqui ou falta um caso associado.');
     }
 }
@@ -331,53 +325,74 @@ const getTransactionNature = (transaction: FinancialTransaction): 'income' | 'ex
     return 'income'; 
 }
 
-// **NEW**: Logic for "Add Expense" Modal
+// Logic for "Add Expense" Modal
 const showAddExpenseModal = ref(false);
 const addExpenseForm = useForm({
     notes: '',
     total_amount: null as number | string | null,
     payment_type: null as string | null,
-    first_installment_due_date: new Date().toISOString().split('T')[0], // Default to today
-    transaction_nature: 'expense' as const, // Hardcoded as it's an "Add Expense" modal
-    status: 'pending', // Default status for new expenses
-    // Optional fields that could be added:
-    // supplier_contact_id: null as string | number | null,
-    // payment_method: null as string | null,
-    // down_payment_date: null as string | null, // If paid immediately
+    first_installment_due_date: new Date().toISOString().split('T')[0],
+    transaction_nature: 'expense' as const,
+    status: 'pending',
+    number_of_installments: null as number | null,
+    value_of_installment: null as number | string | null,
+    supplier_contact_id: null as string | number | null,
+    payment_method: null as string | null,
+    down_payment_amount: null as number | string | null,
+    interest_amount: null as number | string | null,
 });
 
+const isInstallmentPaymentType = computed(() => {
+    // **IMPORTANTE**: Ajuste 'parcelado' para o valor exato do seu Enum/backend que representa "Parcelado"
+    // Exemplo: Se o valor no backend for 'installments', use 'installments' aqui.
+    const installmentTypeValueFromProps = props.paymentTypes.find(pt => pt.label.toLowerCase().includes('parcelado'))?.value;
+    return addExpenseForm.payment_type === installmentTypeValueFromProps && installmentTypeValueFromProps !== undefined;
+});
+
+
 function openAddExpenseModal() {
-    addExpenseForm.reset(); // Reset form on open
-    // Set default due date again if needed, or manage it within the form
+    addExpenseForm.reset();
     addExpenseForm.first_installment_due_date = new Date().toISOString().split('T')[0];
     addExpenseForm.status = 'pending';
+    addExpenseForm.transaction_nature = 'expense';
     showAddExpenseModal.value = true;
 }
 
 function submitAddExpense() {
-    // Ensure the route 'financial-transactions.store' exists and is configured
-    // to handle POST requests for creating new transactions.
     addExpenseForm.post(routeHelper('financial-transactions.store'), {
         preserveScroll: true,
         onSuccess: () => {
             showAddExpenseModal.value = false;
             addExpenseForm.reset();
-            // Optionally, inform the user of success (e.g., via a toast notification)
-            // Inertia might automatically reload data or you might need to call:
-            // router.reload({ only: ['transactions', 'dashboardSummary', 'upcomingDueExpenses'] }); 
         },
         onError: (errors) => {
             console.error('Erro ao adicionar despesa:', errors);
-            // Optionally, inform the user of the error (e.g., display errors in the modal or a toast)
         }
     });
 }
 
-// Computed property for payment types suitable for expenses (if needed for filtering dropdown)
-// For now, we'll use all paymentTypes and rely on transaction_nature: 'expense'
-// const expensePaymentTypes = computed(() => {
-// return props.paymentTypes.filter(pt => pt.nature === 'expense' || !pt.nature);
-// });
+// Watch for changes in payment_type to clear installment fields if not applicable
+// Also, automatically calculate installment value
+watchEffect(() => {
+    const paymentType = addExpenseForm.payment_type;
+    const totalAmount = parseFloat(String(addExpenseForm.total_amount));
+    const numInstallments = parseInt(String(addExpenseForm.number_of_installments), 10);
+
+    if (isInstallmentPaymentType.value) {
+        if (!isNaN(totalAmount) && totalAmount > 0 && !isNaN(numInstallments) && numInstallments > 0) {
+            const calculatedInstallmentValue = totalAmount / numInstallments;
+            // Arredonda para 2 casas decimais e converte para string para o input
+            addExpenseForm.value_of_installment = calculatedInstallmentValue.toFixed(2);
+        } else if (numInstallments <= 0 && addExpenseForm.value_of_installment !== '') {
+             // Se o número de parcelas for inválido, mas já havia um valor, limpa.
+             // Ou você pode optar por não limpar automaticamente e deixar a validação do backend tratar.
+             // addExpenseForm.value_of_installment = ''; // Descomente se quiser limpar
+        }
+    } else {
+        addExpenseForm.number_of_installments = null;
+        addExpenseForm.value_of_installment = null;
+    }
+});
 
 </script>
 
@@ -402,7 +417,7 @@ function submitAddExpense() {
                     <CardContent>
                         <div class="text-3xl font-bold text-green-600 dark:text-green-400">{{ formatCurrency(props.dashboardSummary.totalReceivedInPeriod, 'income') }}</div>
                         <p class="text-xs text-muted-foreground">
-                           {{ summaryCardsPeriodText }}
+                            {{ summaryCardsPeriodText }}
                         </p>
                     </CardContent>
                 </Card>
@@ -415,13 +430,13 @@ function submitAddExpense() {
                     <CardContent>
                         <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ formatCurrency(props.dashboardSummary.totalExpensesInPeriod, 'expense') }}</div>
                         <p class="text-xs text-muted-foreground">
-                           {{ summaryCardsPeriodText }}
+                            {{ summaryCardsPeriodText }}
                         </p>
                     </CardContent>
                 </Card>
 
                 <Card class="shadow-lg hover:shadow-xl transition-shadow">
-                       <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle class="text-sm font-medium">Saldo</CardTitle>
                             <Wallet class="h-5 w-5 text-blue-500" />
                         </CardHeader>
@@ -470,7 +485,7 @@ function submitAddExpense() {
                     <Card class="shadow-md">
                         <CardContent class="p-0">
                             <Table v-if="props.upcomingDueExpenses && props.upcomingDueExpenses.length > 0">
-                                   <TableHeader><TableRow><TableHead class="w-[40%]">Descrição/Fornecedor</TableHead><TableHead class="w-[30%]">Vencimento</TableHead><TableHead class="w-[30%] text-right">Valor Pendente</TableHead></TableRow></TableHeader>
+                                <TableHeader><TableRow><TableHead class="w-[40%]">Descrição/Fornecedor</TableHead><TableHead class="w-[30%]">Vencimento</TableHead><TableHead class="w-[30%] text-right">Valor Pendente</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                     <TableRow v-for="expense in props.upcomingDueExpenses" :key="`upcoming-exp-${expense.id}`">
                                         <TableCell class="text-sm">{{ expense.notes || expense.supplier_contact?.name || expense.supplier_contact?.business_name || 'Despesa avulsa' }}</TableCell>
@@ -491,13 +506,13 @@ function submitAddExpense() {
                     <div class="space-y-4">
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                             <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100">Todas as Transações Financeiras</h2>
-                               <div class="flex items-center gap-2 flex-wrap">
-                                <Button :variant="quickFilterNatureTable === null && quickFilterStatusTable === null ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter(null, null)" class="h-9">Todas</Button>
-                                <Button :variant="quickFilterNatureTable === 'income' && quickFilterStatusTable === 'pending' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('pending', 'income')" class="h-9">A Receber</Button>
-                                <Button :variant="quickFilterNatureTable === 'income' && quickFilterStatusTable === 'paid' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('paid', 'income')" class="h-9">Recebidas</Button>
-                                <Button :variant="quickFilterNatureTable === 'expense' && quickFilterStatusTable === 'pending' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('pending', 'expense')" class="h-9">A Pagar</Button>
-                                <Button :variant="quickFilterNatureTable === 'expense' && quickFilterStatusTable === 'paid' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('paid', 'expense')" class="h-9">Pagas</Button>
-                            </div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                 <Button :variant="quickFilterNatureTable === null && quickFilterStatusTable === null ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter(null, null)" class="h-9">Todas</Button>
+                                 <Button :variant="quickFilterNatureTable === 'income' && quickFilterStatusTable === 'pending' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('pending', 'income')" class="h-9">A Receber</Button>
+                                 <Button :variant="quickFilterNatureTable === 'income' && quickFilterStatusTable === 'paid' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('paid', 'income')" class="h-9">Recebidas</Button>
+                                 <Button :variant="quickFilterNatureTable === 'expense' && quickFilterStatusTable === 'pending' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('pending', 'expense')" class="h-9">A Pagar</Button>
+                                 <Button :variant="quickFilterNatureTable === 'expense' && quickFilterStatusTable === 'paid' ? 'secondary' : 'outline'" size="sm" @click="applyQuickTableFilter('paid', 'expense')" class="h-9">Pagas</Button>
+                                </div>
                         </div>
                         
                         <Card class="bg-slate-50 dark:bg-slate-800/50 border shadow-sm">
@@ -524,7 +539,7 @@ function submitAddExpense() {
                                 <Label for="search_contact_table" class="text-xs">Buscar por Contato/Fornecedor</Label>
                                 <Input id="search_contact_table" v-model="localFilters.search_contact" placeholder="Nome do contato/fornecedor..." class="mt-1 h-9" />
                             </div>
-                               <div class="flex-grow"> <Label for="search_description_table" class="text-xs">Buscar por Descrição/Notas</Label>
+                                <div class="flex-grow"> <Label for="search_description_table" class="text-xs">Buscar por Descrição/Notas</Label>
                                 <Input id="search_description_table" v-model="localFilters.search_description" placeholder="Termos na descrição..." class="mt-1 h-9" />
                             </div>
                             <Popover v-model:open="showAdvancedFiltersPopover">
@@ -572,9 +587,9 @@ function submitAddExpense() {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                       <div class="flex justify-end pt-2">
-                                        <Button variant="ghost" size="sm" @click="resetTableFilters(); showAdvancedFiltersPopover = false" class="text-xs h-8">Limpar Filtros</Button>
-                                    </div>
+                                        <div class="flex justify-end pt-2">
+                                         <Button variant="ghost" size="sm" @click="resetTableFilters(); showAdvancedFiltersPopover = false" class="text-xs h-8">Limpar Filtros</Button>
+                                     </div>
                                 </PopoverContent>
                             </Popover>
                         </div>
@@ -631,8 +646,8 @@ function submitAddExpense() {
                                                 {{ formatCurrency( (Number(transaction.total_amount) || 0) + (Number(transaction.interest_amount) || 0) ) }}
                                             </span>
                                             <div v-if="transaction.interest_amount && parseFloat(String(transaction.interest_amount)) > 0" 
-                                                   class="text-xs mt-0.5"
-                                                   :class="getTransactionNature(transaction) === 'expense' ? 'text-red-500 dark:text-red-400 opacity-80' : 'text-green-500 dark:text-green-400 opacity-80'">
+                                                 class="text-xs mt-0.5"
+                                                 :class="getTransactionNature(transaction) === 'expense' ? 'text-red-500 dark:text-red-400 opacity-80' : 'text-green-500 dark:text-green-400 opacity-80'">
                                                 (Principal: {{ formatCurrency(transaction.total_amount) }} + Juros: {{ formatCurrency(transaction.interest_amount) }})
                                             </div>
                                         </TableCell>
@@ -694,16 +709,16 @@ function submitAddExpense() {
                     </div>
 
                     <div class="grid grid-cols-4 items-center gap-x-4 gap-y-2">
-                        <Label for="expense-total_amount" class="text-right col-span-4 sm:col-span-1">Valor (R$)</Label>
+                        <Label for="expense-total_amount" class="text-right col-span-4 sm:col-span-1">Valor Total (R$)</Label>
                         <Input id="expense-total_amount" v-model="addExpenseForm.total_amount" type="number" step="0.01" class="col-span-4 sm:col-span-3" placeholder="Ex: 150.75" />
                         <div v-if="addExpenseForm.errors.total_amount" class="col-span-4 sm:col-start-2 sm:col-span-3 text-red-500 text-xs">{{ addExpenseForm.errors.total_amount }}</div>
                     </div>
                     
                     <div class="grid grid-cols-4 items-center gap-x-4 gap-y-2">
-                        <Label for="expense-payment_type" class="text-right col-span-4 sm:col-span-1">Tipo</Label>
+                        <Label for="expense-payment_type" class="text-right col-span-4 sm:col-span-1">Tipo de Pagamento</Label>
                         <Select v-model="addExpenseForm.payment_type">
                             <SelectTrigger id="expense-payment_type" class="col-span-4 sm:col-span-3">
-                                <SelectValue placeholder="Selecione o tipo de despesa" />
+                                <SelectValue placeholder="Selecione o tipo" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectGroup>
@@ -718,6 +733,20 @@ function submitAddExpense() {
                         </Select>
                         <div v-if="addExpenseForm.errors.payment_type" class="col-span-4 sm:col-start-2 sm:col-span-3 text-red-500 text-xs">{{ addExpenseForm.errors.payment_type }}</div>
                     </div>
+
+                    <!-- Campos de Parcelamento - Condicional -->
+                    <template v-if="isInstallmentPaymentType">
+                        <div class="grid grid-cols-4 items-center gap-x-4 gap-y-2">
+                            <Label for="expense-number_of_installments" class="text-right col-span-4 sm:col-span-1">Nº de Parcelas</Label>
+                            <Input id="expense-number_of_installments" v-model="addExpenseForm.number_of_installments" type="number" step="1" min="1" class="col-span-4 sm:col-span-3" placeholder="Ex: 3" />
+                            <div v-if="addExpenseForm.errors.number_of_installments" class="col-span-4 sm:col-start-2 sm:col-span-3 text-red-500 text-xs">{{ addExpenseForm.errors.number_of_installments }}</div>
+                        </div>
+                        <div class="grid grid-cols-4 items-center gap-x-4 gap-y-2">
+                            <Label for="expense-value_of_installment" class="text-right col-span-4 sm:col-span-1">Valor da Parcela (R$)</Label>
+                            <Input id="expense-value_of_installment" v-model="addExpenseForm.value_of_installment" type="number" step="0.01" class="col-span-4 sm:col-span-3" placeholder="Calculado automaticamente" />
+                            <div v-if="addExpenseForm.errors.value_of_installment" class="col-span-4 sm:col-start-2 sm:col-span-3 text-red-500 text-xs">{{ addExpenseForm.errors.value_of_installment }}</div>
+                        </div>
+                    </template>
 
                     <div class="grid grid-cols-4 items-center gap-x-4 gap-y-2">
                         <Label for="expense-first_installment_due_date" class="text-right col-span-4 sm:col-span-1">Data de Vencimento</Label>
@@ -741,7 +770,7 @@ function submitAddExpense() {
                         </Select>
                         <div v-if="addExpenseForm.errors.status" class="col-span-4 sm:col-start-2 sm:col-span-3 text-red-500 text-xs">{{ addExpenseForm.errors.status }}</div>
                     </div>
-
+                     <!-- Outros campos opcionais podem ser adicionados aqui, como Fornecedor, Método de Pagamento, etc. -->
                 </div>
                 <DialogFooter class="mt-6">
                     <Button variant="outline" type="button" @click="showAddExpenseModal = false">Cancelar</Button>

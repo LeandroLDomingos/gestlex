@@ -9,6 +9,7 @@ use App\Enums\PaymentType; // Seu Enum de tipos de pagamento
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Enums\TransactionNature;
 
 class ProcessPayment extends Model
 {
@@ -46,6 +47,7 @@ class ProcessPayment extends Model
         'notes',
         'transaction_nature',
         'supplier_contact_id',
+        'transaction_group_id',
     ];
 
     protected $casts = [
@@ -58,6 +60,7 @@ class ProcessPayment extends Model
         'number_of_installments' => 'integer',
         'status' => 'string',
         'transaction_nature' => 'string',
+        'transaction_group_id' => 'string', 
     ];
 
     /**
@@ -68,7 +71,7 @@ class ProcessPayment extends Model
     protected function statusLabel(): Attribute
     {
         return Attribute::make(
-            get: fn ($value, $attributes) => self::$statuses[$attributes['status']] ?? ucfirst($attributes['status'] ?? 'N/A'),
+            get: fn($value, $attributes) => self::$statuses[$attributes['status']] ?? ucfirst($attributes['status'] ?? 'N/A'),
         );
     }
 
@@ -96,5 +99,21 @@ class ProcessPayment extends Model
     public function supplierContact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'supplier_contact_id');
+    }
+
+    public function scopeIncome($query)
+    {
+        return $query->where('transaction_nature', TransactionNature::INCOME->value);
+    }
+
+    /**
+     * Scope a query to only include expense transactions.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeExpense($query)
+    {
+        return $query->where('transaction_nature', TransactionNature::EXPENSE->value);
     }
 }

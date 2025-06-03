@@ -2,24 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Process;
 use App\Models\ProcessPayment;
 use App\Enums\PaymentType;
 use App\Enums\TransactionNature;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Inertia\Response;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Validator;
-use App\Models\Process;
+use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+use Inertia\Response as InertiaResponse;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+use Illuminate\Support\Str; // Importar Str para UUIDs
 
 class FinancialTransactionController extends Controller
 {
     /**
      * Helper para inferir a natureza da transação (receita/despesa)
-     * baseado no tipo de pagamento, caso a coluna 'transaction_nature' não exista
-     * ou não esteja preenchida.
+     * baseado no tipo de pagamento.
      *
      * @param string|null $paymentTypeValue O valor string do tipo de pagamento.
      * @return string|null 'income', 'expense', ou null.
@@ -30,43 +31,32 @@ class FinancialTransactionController extends Controller
             return null;
         }
 
-        // **IMPORTANTE:** Defina aqui os VALORES dos seus PaymentType Enums que são DESPESAS.
-        // Estes são apenas exemplos.
         $expensePaymentTypes = [
-            'despesa_operacional', // Exemplo, substitua/adicione os seus
+            'despesa_operacional',
             'compra_material',
             'pagamento_fornecedor',
             'custas_processuais',
             'adiantamento_despesa'
-            // Ex: se tivesse um PaymentType::CUSTAS_JUDICIAIS->value, adicionaria aqui.
         ];
         if (in_array($paymentTypeValue, $expensePaymentTypes)) {
             return TransactionNature::EXPENSE->value;
         }
 
-        // **IMPORTANTE:** Defina aqui os VALORES dos seus PaymentType Enums que são RECEITAS.
         $incomePaymentTypes = [
             PaymentType::A_VISTA->value,
-            PaymentType::PARCELADO->value,
+            PaymentType::PARCELADO->value, 
             PaymentType::HONORARIO->value,
-            // Adicione outros tipos específicos de receita se existirem e não forem cobertos acima
-            // 'honorario_entrada', // Se estes forem valores string diretos e não do enum
-            // 'honorario_parcela',
-            // 'receita_servico',
         ];
         if (in_array($paymentTypeValue, $incomePaymentTypes)) {
             return TransactionNature::INCOME->value;
         }
-
-        // Se o tipo de pagamento não estiver claramente definido como receita ou despesa,
-        // retorna null. O ideal é que todas as transações tenham uma natureza clara.
         return null;
     }
 
-    public function index(Request $request): Response
+    public function index(Request $request): InertiaResponse
     {
         $request->validate([
-            'sort_by' => 'nullable|string|in:created_at,first_installment_due_date,total_amount,status,payment_type,process.title,process.contact.name,total_value_with_interest,transaction_nature',
+            'sort_by' => 'nullable|string|in:created_at,first_installment_due_date,total_amount,status,payment_type,process.title,process.contact.name,total_value_with_interest,transaction_nature,transaction_group_id',
             'sort_direction' => 'nullable|string|in:asc,desc',
             'search_process' => 'nullable|string|max:255',
             'search_contact' => 'nullable|string|max:255',
@@ -74,38 +64,37 @@ class FinancialTransactionController extends Controller
             'payment_type_filter' => 'nullable|string',
             'status_filter' => 'nullable|string',
             'transaction_nature_filter' => 'nullable|string|in:income,expense',
-            'summary_date_from' => 'nullable|date_format:Y-m-d', // Para filtros da tabela
-            'summary_date_to' => 'nullable|date_format:Y-m-d|after_or_equal:summary_date_from', // Para filtros da tabela
+            'summary_date_from' => 'nullable|date_format:Y-m-d',
+            'summary_date_to' => 'nullable|date_format:Y-m-d|after_or_equal:summary_date_from',
         ]);
 
         $today = Carbon::today();
-        // Verifica se a coluna transaction_nature existe na tabela.
-        // Esta verificação é feita uma vez para otimizar.
         $hasTransactionNatureColumn = DB::getSchemaBuilder()->hasColumn((new ProcessPayment)->getTable(), 'transaction_nature');
 
-        // --- Closure para aplicar filtro de natureza ---
         $applyNatureFilter = function ($query, string $targetNature) use ($hasTransactionNatureColumn) {
+            $paymentTypesForTargetNature = collect(PaymentType::cases())
+                ->filter(fn($ptEnum) => $this->inferTransactionNature($ptEnum->value) === $targetNature)
+                ->pluck('value')->all();
+
             if ($hasTransactionNatureColumn) {
-                // Usa os scopes do modelo se a coluna existir
-                if ($targetNature === TransactionNature::INCOME->value) {
-                    $query->income();
-                } elseif ($targetNature === TransactionNature::EXPENSE->value) {
-                    $query->expense();
-                }
+                $query->where(function ($subQuery) use ($targetNature, $paymentTypesForTargetNature) {
+                    $subQuery->where('transaction_nature', $targetNature);
+                    if (!empty($paymentTypesForTargetNature)) {
+                        $subQuery->orWhere(function ($fallbackQuery) use ($paymentTypesForTargetNature) {
+                            $fallbackQuery->whereNull('transaction_nature')
+                                          ->whereIn('payment_type', $paymentTypesForTargetNature);
+                        });
+                    }
+                });
             } else {
-                // Fallback: infere pela lista de payment_type
-                $relevantPaymentTypes = collect(PaymentType::cases())
-                    ->filter(fn($ptEnum) => $this->inferTransactionNature($ptEnum->value) === $targetNature)
-                    ->pluck('value')->all();
-                if (!empty($relevantPaymentTypes)) {
-                    $query->whereIn('payment_type', $relevantPaymentTypes);
+                if (!empty($paymentTypesForTargetNature)) {
+                    $query->whereIn('payment_type', $paymentTypesForTargetNature);
                 } else {
-                    $query->whereRaw('1=0'); // Nenhuma transação se não houver tipos correspondentes
+                    $query->whereRaw('1=0');
                 }
             }
         };
 
-        // --- Tabela Principal de Transações ---
         $transactionsQuery = ProcessPayment::query()
             ->with(['process:id,title,contact_id', 'process.contact:id,name,business_name', 'supplierContact:id,name,business_name']);
 
@@ -116,7 +105,7 @@ class FinancialTransactionController extends Controller
             $searchTerm = '%' . $request->input('search_contact') . '%';
             $transactionsQuery->where(function ($query) use ($searchTerm) {
                 $query->whereHas('process.contact', fn($q) => $q->where('name', 'like', $searchTerm)->orWhere('business_name', 'like', $searchTerm))
-                    ->orWhereHas('supplierContact', fn($q) => $q->where('name', 'like', $searchTerm)->orWhere('business_name', 'like', $searchTerm));
+                      ->orWhereHas('supplierContact', fn($q) => $q->where('name', 'like', $searchTerm)->orWhere('business_name', 'like', $searchTerm));
             });
         }
         if ($request->filled('search_description')) {
@@ -128,7 +117,6 @@ class FinancialTransactionController extends Controller
         if ($request->filled('status_filter')) {
             $transactionsQuery->where('status', $request->input('status_filter'));
         }
-
         if ($request->filled('transaction_nature_filter')) {
             $applyNatureFilter($transactionsQuery, $request->input('transaction_nature_filter'));
         }
@@ -146,34 +134,34 @@ class FinancialTransactionController extends Controller
 
         $tableSortBy = $request->input('sort_by', 'first_installment_due_date');
         $tableSortDirection = $request->input('sort_direction', 'desc');
-        // ... (lógica de ordenação da tabela - adaptada para usar select() corretamente com joins)
+        
         if ($tableSortBy === 'process.title') {
             $transactionsQuery->leftJoin('processes', 'process_payments.process_id', '=', 'processes.id')->orderBy('processes.title', $tableSortDirection)->select('process_payments.*');
         } elseif ($tableSortBy === 'process.contact.name') {
             $transactionsQuery->leftJoin('processes', 'process_payments.process_id', '=', 'processes.id')->leftJoin('contacts', 'processes.contact_id', '=', 'contacts.id')->orderBy('contacts.name', $tableSortDirection)->select('process_payments.*');
         } elseif ($tableSortBy === 'total_value_with_interest') {
             $transactionsQuery->orderBy(DB::raw('process_payments.total_amount + IFNULL(process_payments.interest_amount, 0)'), $tableSortDirection);
-        } elseif (in_array($tableSortBy, ['total_amount', 'created_at', 'first_installment_due_date', 'down_payment_date', 'status', 'payment_type', 'transaction_nature'])) {
-            $transactionsQuery->orderBy("process_payments.$tableSortBy", $tableSortDirection); // Adicionado prefixo da tabela
+        } elseif (in_array($tableSortBy, ['total_amount', 'created_at', 'first_installment_due_date', 'down_payment_date', 'status', 'payment_type', 'transaction_nature', 'transaction_group_id'])) {
+            $transactionsQuery->orderBy("process_payments.$tableSortBy", $tableSortDirection);
         } else {
             $transactionsQuery->orderBy('process_payments.first_installment_due_date', 'desc');
         }
 
-
         $paginatedTransactions = $transactionsQuery->paginate(10)->withQueryString();
         $paginatedTransactions->getCollection()->each(function ($transaction) use ($hasTransactionNatureColumn) {
             $transaction->append('status_label');
-            // Se a coluna transaction_nature não existe E a propriedade não foi inferida/setada
             if (!$hasTransactionNatureColumn && empty($transaction->transaction_nature) && !property_exists($transaction, 'transaction_nature_already_set')) {
-                $inferredNature = $this->inferTransactionNature($transaction->payment_type?->value);
+                $paymentTypeValue = is_object($transaction->payment_type) && property_exists($transaction->payment_type, 'value')
+                                    ? $transaction->payment_type->value
+                                    : (is_string($transaction->payment_type) ? $transaction->payment_type : null);
+                $inferredNature = $this->inferTransactionNature($paymentTypeValue);
                 if ($inferredNature) {
-                    $transaction->transaction_nature = $inferredNature; // Adiciona dinamicamente para o frontend
+                    $transaction->transaction_nature = $inferredNature;
                 }
-                $transaction->transaction_nature_already_set = true; // Flag para evitar reprocessamento
+                $transaction->transaction_nature_already_set = true;
             }
         });
 
-        // --- Cards de Resumo ---
         $summaryCardsDateFromFixed = $today->copy()->startOfMonth();
         $summaryCardsDateToFixed = $today->copy()->endOfMonth();
         $weeklyCardsDateFromFixed = $today->copy()->startOfWeek(Carbon::SUNDAY);
@@ -181,15 +169,12 @@ class FinancialTransactionController extends Controller
 
         $totalReceivedInPeriod = ProcessPayment::query()->where('status', ProcessPayment::STATUS_PAID)->where(fn($q) => $applyNatureFilter($q, TransactionNature::INCOME->value))->whereNotNull('down_payment_date')->whereBetween('down_payment_date', [$summaryCardsDateFromFixed, $summaryCardsDateToFixed])->sum(DB::raw('total_amount + IFNULL(interest_amount, 0)'));
         $totalExpensesInPeriod = ProcessPayment::query()->where('status', ProcessPayment::STATUS_PAID)->where(fn($q) => $applyNatureFilter($q, TransactionNature::EXPENSE->value))->whereNotNull('down_payment_date')->whereBetween('down_payment_date', [$summaryCardsDateFromFixed, $summaryCardsDateToFixed])->sum(DB::raw('total_amount + IFNULL(interest_amount, 0)'));
-
         $totalLifetimeReceived = ProcessPayment::query()->where('status', ProcessPayment::STATUS_PAID)->where(fn($q) => $applyNatureFilter($q, TransactionNature::INCOME->value))->sum(DB::raw('total_amount + IFNULL(interest_amount, 0)'));
         $totalLifetimeExpenses = ProcessPayment::query()->where('status', ProcessPayment::STATUS_PAID)->where(fn($q) => $applyNatureFilter($q, TransactionNature::EXPENSE->value))->sum(DB::raw('total_amount + IFNULL(interest_amount, 0)'));
         $overallBalance = $totalLifetimeReceived - $totalLifetimeExpenses;
-
         $accountsReceivableOverdueWeekly = ProcessPayment::query()->where(fn($q) => $applyNatureFilter($q, TransactionNature::INCOME->value))->whereIn('status', [ProcessPayment::STATUS_PENDING, ProcessPayment::STATUS_OVERDUE])->whereNotNull('first_installment_due_date')->whereBetween('first_installment_due_date', [$weeklyCardsDateFromFixed, $weeklyCardsDateToFixed])->sum('total_amount');
         $accountsPayableOverdueWeekly = ProcessPayment::query()->where(fn($q) => $applyNatureFilter($q, TransactionNature::EXPENSE->value))->whereIn('status', [ProcessPayment::STATUS_PENDING, ProcessPayment::STATUS_OVERDUE])->whereNotNull('first_installment_due_date')->whereBetween('first_installment_due_date', [$weeklyCardsDateFromFixed, $weeklyCardsDateToFixed])->sum('total_amount');
 
-        // --- Listas Rápidas ---
         $latestPaidExpenses = ProcessPayment::query()
             ->with(['supplierContact:id,name,business_name', 'process:id,title'])
             ->where('status', ProcessPayment::STATUS_PAID)
@@ -221,7 +206,7 @@ class FinancialTransactionController extends Controller
             'dashboardSummary' => [
                 'totalReceivedInPeriod' => $totalReceivedInPeriod,
                 'totalExpensesInPeriod' => $totalExpensesInPeriod,
-                'balanceInPeriod' => $overallBalance, // Saldo total acumulado
+                'balanceInPeriod' => $overallBalance,
                 'accountsReceivableOverdueWeekly' => $accountsReceivableOverdueWeekly,
                 'accountsPayableOverdueWeekly' => $accountsPayableOverdueWeekly,
                 'summaryCardsDateFrom' => $summaryCardsDateFromFixed->toDateString(),
@@ -236,21 +221,24 @@ class FinancialTransactionController extends Controller
 
     public function store(Request $request)
     {
-        // 1. Validação dos dados recebidos do formulário
-        // Adapt validation rules based on your Enums and ProcessPayment model structure.
-        $validStatuses = array_keys(ProcessPayment::getStatusesForFrontend()); // Get valid status keys
-        $validPaymentTypes = array_map(fn($pt) => $pt['value'], PaymentType::forFrontend()); // Get valid payment type values
+        $validStatuses = array_keys(ProcessPayment::$statuses);
+        $validPaymentTypes = array_map(fn($pt) => $pt['value'], PaymentType::forFrontend()); 
+        $installmentPaymentTypeValue = PaymentType::PARCELADO->value; 
 
         $validator = Validator::make($request->all(), [
             'notes' => 'nullable|string|max:1000',
             'total_amount' => 'required|numeric|min:0.01',
             'payment_type' => ['required', 'string', Rule::in($validPaymentTypes)],
-            'first_installment_due_date' => 'required|date_format:Y-m-d', // Match frontend format
-            'transaction_nature' => ['required', Rule::in(TransactionNature::values())], // Use Enum values
+            'first_installment_due_date' => 'required|date_format:Y-m-d',
+            'transaction_nature' => ['required', Rule::in(array_map(fn($case) => $case->value, TransactionNature::cases()))],
             'status' => ['required', 'string', Rule::in($validStatuses)],
             'process_id' => 'nullable|exists:processes,id',
-            'supplier_contact_id' => 'nullable|exists:contacts,id', // If you add this field to your form
-            // 'payment_method' => 'nullable|string|max:50',
+            'supplier_contact_id' => 'nullable|exists:contacts,id',
+            'number_of_installments' => 'nullable|required_if:payment_type,'.$installmentPaymentTypeValue.'|integer|min:1',
+            'value_of_installment' => 'nullable|required_if:payment_type,'.$installmentPaymentTypeValue.'|numeric|min:0.01',
+            'down_payment_amount' => 'nullable|numeric|min:0',
+            'payment_method' => 'nullable|string|max:50',
+            'interest_amount' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -260,67 +248,268 @@ class FinancialTransactionController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // 2. Criação da Transação Financeira (ProcessPayment)
+        DB::beginTransaction();
         try {
-            $payment = new ProcessPayment(); // CHANGED to ProcessPayment
-            $payment->notes = $request->input('notes');
-            $payment->total_amount = $request->input('total_amount');
-            $payment->payment_type = $request->input('payment_type'); // Should map to PaymentType Enum value
-            $payment->first_installment_due_date = $request->input('first_installment_due_date');
-            
-            // Ensure transaction_nature is set, preferably using the Enum value passed from frontend
-            $payment->transaction_nature = $request->input('transaction_nature');
-
-            $payment->status = $request->input('status'); // Should map to ProcessPayment status constants/keys
+            $paymentData = $request->only([
+                'notes', 'transaction_nature', 'status', 'process_id', 
+                'supplier_contact_id', 'payment_method', 'interest_amount', 'down_payment_amount'
+            ]);
 
             if ($request->filled('process_id')) {
-                $payment->process_id = $request->input('process_id');
-                $process = Process::find($payment->process_id);
-                // Assuming Process model has an isArchived() method or similar logic
+                $process = Process::find($request->input('process_id'));
                 if ($process && (method_exists($process, 'isArchived') ? $process->isArchived() : !is_null($process->archived_at))) {
+                     DB::rollBack();
                      if ($request->inertia()) {
-                        return back()->with('error', 'Não é possível adicionar transações a um caso arquivado.')->withInput();
+                         return back()->with('error', 'Não é possível adicionar transações a um caso arquivado.')->withInput();
                      }
                      return response()->json(['error' => 'Não é possível adicionar transações a um caso arquivado.'], 403);
                 }
+                $paymentData['process_id'] = $request->input('process_id');
+            } else {
+                $paymentData['process_id'] = null;
             }
             
-            // If a supplier_contact_id is provided and it's an expense not linked to a process
-            if ($request->filled('supplier_contact_id') && $payment->transaction_nature === TransactionNature::EXPENSE->value && !$request->filled('process_id')) {
-                $payment->supplier_contact_id = $request->input('supplier_contact_id');
+            if ($request->filled('supplier_contact_id') && $request->input('transaction_nature') === TransactionNature::EXPENSE->value && !$request->filled('process_id')) {
+                $paymentData['supplier_contact_id'] = $request->input('supplier_contact_id');
             }
 
+            $firstDueDate = Carbon::parse($request->input('first_installment_due_date'));
 
-            // Se o status for 'paid' ou 'received' (usando constantes do modelo se disponíveis)
-            if (in_array($payment->status, [ProcessPayment::STATUS_PAID, ProcessPayment::STATUS_RECEIVED])) { // Adjust if STATUS_RECEIVED is not used
-                $payment->down_payment_date = now()->format('Y-m-d'); // Ou uma data específica se fornecida
+            if ($request->input('payment_type') === $installmentPaymentTypeValue) {
+                $numberOfInstallments = (int) $request->input('number_of_installments');
+                $valueOfInstallment = (float) $request->input('value_of_installment');
+                $transactionGroupId = (string) Str::uuid(); 
+
+                for ($i = 0; $i < $numberOfInstallments; $i++) {
+                    $installment = new ProcessPayment();
+                    $installment->fill($paymentData);
+                    $installment->transaction_group_id = $transactionGroupId; 
+                    $installment->payment_type = $request->input('payment_type');
+                    $installment->total_amount = $valueOfInstallment;
+                    $installment->number_of_installments = $numberOfInstallments;
+                    $installment->value_of_installment = $valueOfInstallment;
+                    $installment->first_installment_due_date = ($i === 0) ? $firstDueDate->copy() : $firstDueDate->copy()->addMonthsNoOverflow($i);
+                    $installment->status = $request->input('status', ProcessPayment::STATUS_PENDING); 
+                    
+                    if ($i === 0 && $installment->status === ProcessPayment::STATUS_PAID) {
+                        $installment->down_payment_date = now()->format('Y-m-d');
+                    }
+                    $installment->save();
+                }
+            } else {
+                $payment = new ProcessPayment();
+                $payment->fill($paymentData);
+                $payment->transaction_group_id = null; 
+                $payment->total_amount = $request->input('total_amount');
+                $payment->payment_type = $request->input('payment_type');
+                $payment->first_installment_due_date = $firstDueDate;
+                $payment->number_of_installments = null;
+                $payment->value_of_installment = null;
+                
+                if ($payment->status === ProcessPayment::STATUS_PAID) { 
+                    $payment->down_payment_date = now()->format('Y-m-d');
+                }
+                $payment->save();
             }
-            
-            // $payment->user_id = auth()->id(); // If tracking user who created it
 
-            $payment->save();
+            DB::commit();
 
-            // 3. Redirecionamento ou Resposta
-            $successMessage = $payment->transaction_nature === TransactionNature::EXPENSE->value ? 'Despesa adicionada com sucesso!' : 'Receita adicionada com sucesso!';
+            $successMessage = $request->input('transaction_nature') === TransactionNature::EXPENSE->value ? 'Despesa adicionada com sucesso!' : 'Receita adicionada com sucesso!';
+             if ($request->input('payment_type') === $installmentPaymentTypeValue) {
+                $successMessage = $request->input('transaction_nature') === TransactionNature::EXPENSE->value ? 'Despesa parcelada adicionada com sucesso!' : 'Receita parcelada adicionada com sucesso!';
+            }
 
             if ($request->inertia()) {
-                if ($payment->process_id) {
-                    return redirect()->route('processes.show', $payment->process_id)
+                if ($request->filled('process_id')) {
+                    return redirect()->route('processes.show', $request->input('process_id'))
                                      ->with('success', $successMessage);
                 }
-                // Redirect to the financial index page (matching the component name 'Financial/Index')
-                return redirect()->route('financial-transactions.index') // Or whatever your index route for Financial/Index is named
+                return redirect()->route('financial-transactions.index') 
                                  ->with('success', $successMessage);
             }
             
-            return response()->json($payment->load(['process:id,title', 'supplierContact:id,name,business_name']), 201); // Load relations for API response
+            return response()->json(['message' => $successMessage], 201);
 
         } catch (\Exception $e) {
-            Log::error('Erro ao salvar pagamento do processo: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            DB::rollBack();
+            Log::error('Erro ao salvar transação financeira: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
             $errorMessage = 'Ocorreu um erro ao tentar adicionar a transação. Tente novamente.';
 
             if ($request->inertia()) {
                 return back()->with('error', $errorMessage)->withInput();
+            }
+            return response()->json(['error' => $errorMessage], 500);
+        }
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\ProcessPayment  $financialTransaction
+     * @return \Inertia\Response
+     */
+    public function edit(Request $request, ProcessPayment $financialTransaction): InertiaResponse
+    {
+        $financialTransaction->load(['process:id,title,contact_id', 'process.contact:id,name,business_name', 'supplierContact:id,name,business_name']);
+
+        $groupedInstallments = null;
+        if ($financialTransaction->transaction_group_id) {
+            $groupedInstallments = ProcessPayment::where('transaction_group_id', $financialTransaction->transaction_group_id)
+                ->orderBy('first_installment_due_date', 'asc')
+                ->get()
+                ->load(['process:id,title', 'supplierContact:id,name,business_name']);
+        }
+
+        // Formatar TransactionNatures para o frontend
+        $transactionNatures = array_map(function($case) {
+            return ['value' => $case->value, 'label' => ucfirst($case->value)];
+        }, TransactionNature::cases());
+
+        return Inertia::render('Financial/Edit', [
+            'transaction' => $financialTransaction,
+            'groupedInstallments' => $groupedInstallments,
+            'paymentTypes' => PaymentType::forFrontend(),
+            'paymentStatuses' => ProcessPayment::getStatusesForFrontend(),
+            'transactionNatures' => $transactionNatures,
+            // Adicionar outras listas necessárias para dropdowns (ex: processos, contatos)
+            // 'processes' => Process::select('id', 'title')->orderBy('title')->get(),
+            // 'contacts' => Contact::select('id', 'name', 'business_name')->orderBy('name')->get(), // Supondo que Contact model existe
+        ]);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\ProcessPayment  $financialTransaction
+     * @return \Illuminate\Http\Response|\Illuminate\Http\RedirectResponse
+     */
+    public function update(Request $request, ProcessPayment $financialTransaction)
+    {
+        $validStatuses = array_keys(ProcessPayment::$statuses);
+        $validPaymentTypes = array_map(fn($pt) => $pt['value'], PaymentType::forFrontend());
+        $installmentPaymentTypeValue = PaymentType::PARCELADO->value;
+
+        // Validação para edição - pode precisar ser mais granular dependendo do que pode ser editado
+        $validator = Validator::make($request->all(), [
+            'notes' => 'nullable|string|max:1000',
+            'total_amount' => 'required|numeric|min:0.01', // Para uma parcela, este é o valor da parcela
+            'payment_type' => ['required', 'string', Rule::in($validPaymentTypes)],
+            'first_installment_due_date' => 'required|date_format:Y-m-d',
+            'transaction_nature' => ['required', Rule::in(array_map(fn($case) => $case->value, TransactionNature::cases()))],
+            'status' => ['required', 'string', Rule::in($validStatuses)],
+            'process_id' => 'nullable|exists:processes,id',
+            'supplier_contact_id' => 'nullable|exists:contacts,id',
+            // Se for editar um parcelamento, estes campos podem ser relevantes
+            'number_of_installments' => 'nullable|required_if:payment_type,'.$installmentPaymentTypeValue.'|integer|min:1',
+            // 'value_of_installment' => 'nullable|required_if:payment_type,'.$installmentPaymentTypeValue.'|numeric|min:0.01', // O total_amount da parcela é o value_of_installment
+            'down_payment_amount' => 'nullable|numeric|min:0',
+            'payment_method' => 'nullable|string|max:50',
+            'interest_amount' => 'nullable|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            if ($request->inertia()) {
+                return back()->withErrors($validator)->withInput();
+            }
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Lógica de atualização:
+            // Por agora, vamos assumir que estamos a editar os campos da $financialTransaction individual.
+            // Editar um grupo de parcelas (ex: mudar o número de parcelas) é mais complexo
+            // e poderia envolver excluir e recriar as parcelas.
+
+            $financialTransaction->notes = $request->input('notes');
+            $financialTransaction->total_amount = $request->input('total_amount'); // Este é o valor da parcela individual
+            $financialTransaction->payment_type = $request->input('payment_type');
+            $financialTransaction->first_installment_due_date = Carbon::parse($request->input('first_installment_due_date'));
+            $financialTransaction->transaction_nature = $request->input('transaction_nature');
+            $financialTransaction->status = $request->input('status');
+            
+            if ($request->filled('process_id')) {
+                $financialTransaction->process_id = $request->input('process_id');
+            } else {
+                $financialTransaction->process_id = null;
+            }
+
+            if ($request->filled('supplier_contact_id') && $financialTransaction->transaction_nature === TransactionNature::EXPENSE->value && !$request->filled('process_id')) {
+                $financialTransaction->supplier_contact_id = $request->input('supplier_contact_id');
+            } else if (!$request->filled('supplier_contact_id') || $request->filled('process_id')) {
+                $financialTransaction->supplier_contact_id = null;
+            }
+
+            // Se o tipo de pagamento for parcelado, atualiza os campos de parcelamento para ESTE registo
+            if ($request->input('payment_type') === $installmentPaymentTypeValue) {
+                $financialTransaction->number_of_installments = $request->input('number_of_installments'); // Número total de parcelas do grupo
+                $financialTransaction->value_of_installment = $request->input('total_amount'); // O valor desta parcela é o seu total_amount
+            } else {
+                $financialTransaction->number_of_installments = null;
+                $financialTransaction->value_of_installment = null;
+            }
+
+            $financialTransaction->down_payment_amount = $request->input('down_payment_amount');
+            $financialTransaction->payment_method = $request->input('payment_method');
+            $financialTransaction->interest_amount = $request->input('interest_amount');
+
+            // Atualizar data de pagamento se o status for 'paid' e ainda não tiver data
+            if ($financialTransaction->status === ProcessPayment::STATUS_PAID && is_null($financialTransaction->down_payment_date)) {
+                $financialTransaction->down_payment_date = now()->format('Y-m-d');
+            } elseif ($financialTransaction->status !== ProcessPayment::STATUS_PAID && !is_null($financialTransaction->down_payment_date)) {
+                // Se o status mudou de 'paid' para outra coisa, talvez limpar a data de pagamento?
+                // $financialTransaction->down_payment_date = null; // Decida sobre esta lógica
+            }
+
+            $financialTransaction->save();
+            DB::commit();
+
+            return redirect()->route('financial-transactions.index')->with('success', 'Transação atualizada com sucesso!');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erro ao atualizar transação financeira: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            return back()->with('error', 'Erro ao atualizar transação. Tente novamente.')->withInput();
+        }
+    }
+
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\ProcessPayment  $financialTransaction
+     * @return \Illuminate\Http\Response|\Illuminate\Http\RedirectResponse
+     */
+    public function destroy(Request $request, ProcessPayment $financialTransaction)
+    {
+        DB::beginTransaction();
+        try {
+            if ($financialTransaction->transaction_group_id) {
+                ProcessPayment::where('transaction_group_id', $financialTransaction->transaction_group_id)->delete();
+                $successMessage = 'Grupo de transações parceladas excluído com sucesso!';
+            } else {
+                $financialTransaction->delete(); 
+                $successMessage = 'Transação financeira excluída com sucesso!';
+            }
+
+            DB::commit();
+
+            if ($request->inertia()) {
+                return back()->with('success', $successMessage);
+            }
+
+            return response()->json(['message' => $successMessage], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Erro ao excluir transação financeira: ' . $e->getMessage() . ' Stack: ' . $e->getTraceAsString());
+            $errorMessage = 'Ocorreu um erro ao tentar excluir a transação. Tente novamente.';
+
+            if ($request->inertia()) {
+                return back()->with('error', $errorMessage);
             }
             return response()->json(['error' => $errorMessage], 500);
         }
