@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AppLayout from '@/layouts/AppLayout.vue'; // Layout principal da aplicação
+import AdminLayout from '@/layouts/AppLayout.vue'; // Presume que você tem um AdminLayout
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,8 +10,8 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, PlusCircle, Trash2, FilePenLine, ShieldCheck, Users } from 'lucide-vue-next';
-import { PaginatedResponse, Role, Permission, type BreadcrumbItem } from '@/types'; // Tipos da aplicação
-import Pagination from '@/components/Pagination.vue'; // Componente de paginação
+import { PaginatedResponse, Role, Permission } from '@/types'; // Certifique-se que Role e Permission estão em types
+import Pagination from '@/components/Pagination.vue'; // Componente de paginação, se você tiver um
 import { ref, computed } from 'vue';
 import {
     Dialog,
@@ -21,64 +21,46 @@ import {
     DialogHeader,
     DialogTitle,
     DialogClose,
-} from '@/components/ui/dialog'; // Componente de diálogo para confirmação
-import { useToast } from '@/components/ui/toast/use-toast'; // Para exibir notificações (toasts)
+} from '@/components/ui/dialog';
+import { useToast } from '@/components/ui/toast/use-toast';
 
-// Define as propriedades esperadas pelo componente
 interface Props {
-    roles: PaginatedResponse<Role & { users_count?: number; permissions_count?: number }>; // Dados dos papéis paginados
-    filters: { search?: string }; // Filtros aplicados na listagem
-    canCreateRoles: boolean; // Permissão para criar papéis
-    canUpdateRoles: boolean; // Permissão para atualizar papéis
-    canDeleteRoles: boolean; // Permissão para excluir papéis
+    roles: PaginatedResponse<Role & { users_count?: number; permissions_count?: number }>;
+    filters: { search?: string };
+    canCreateRoles: boolean;
+    canUpdateRoles: boolean;
+    canDeleteRoles: boolean;
 }
 
 const props = defineProps<Props>();
-const { toast } = useToast(); // Hook para usar toasts
-const page = usePage(); // Hook do Inertia para acessar dados compartilhados e flash messages
+const { toast } = useToast();
+const page = usePage();
 
-const term = ref(props.filters.search || ''); // Termo de busca, se houver
+const term = ref(props.filters.search || '');
 
-// Variáveis de estado para o diálogo de exclusão
 const showDeleteDialog = ref(false);
 const roleToDelete = ref<Role | null>(null);
 
-// Breadcrumbs para navegação no AppLayout
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: route('dashboard') }, // Ajuste a rota do dashboard se necessário
-    { title: 'Admin', href: '#' }, // Link genérico para seção Admin ou ajuste conforme necessário
-    { title: 'Papéis', href: route('admin.roles.index') } // Rota atual
-];
-
-/**
- * Abre o diálogo de confirmação para excluir um papel.
- * @param {Role} role O papel a ser excluído.
- */
 const confirmDeleteRole = (role: Role) => {
     roleToDelete.value = role;
     showDeleteDialog.value = true;
 };
 
-/**
- * Executa a exclusão do papel selecionado.
- * Envia uma requisição DELETE para o backend.
- */
 const deleteRole = () => {
     if (roleToDelete.value) {
         router.delete(route('admin.roles.destroy', roleToDelete.value.id), {
-            preserveScroll: true, // Mantém a posição da rolagem após a ação
+            preserveScroll: true,
             onSuccess: () => {
                 showDeleteDialog.value = false;
                 roleToDelete.value = null;
-                // A mensagem flash de sucesso do backend será exibida automaticamente
-                // se configurada no HandleInertiaRequests.php
+                // A mensagem flash será exibida automaticamente se configurada no HandleInertiaRequests
             },
             onError: (errors) => {
                 showDeleteDialog.value = false;
                 const errorMessages = Object.values(errors).join(' ');
                 toast({
                     title: 'Erro ao Excluir Papel',
-                    description: errorMessages || 'Não foi possível excluir o papel. Verifique se ele não está em uso.',
+                    description: errorMessages || 'Não foi possível excluir o papel.',
                     variant: 'destructive',
                 });
             }
@@ -86,22 +68,17 @@ const deleteRole = () => {
     }
 };
 
-// Propriedades computadas para acessar mensagens flash da sessão
-const flashSuccess = computed(() => page.props.flash.success);
-const flashError = computed(() => page.props.flash.error);
-
 </script>
 
 <template>
     <Head title="Gerenciar Papéis" />
-    <AppLayout :breadcrumbs="breadcrumbs">
+    <AdminLayout>
         <div class="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-9xl mx-auto">
             <!-- Cabeçalho da Página -->
             <div class="sm:flex sm:justify-between sm:items-center mb-8">
                 <div class="mb-4 sm:mb-0">
                     <h1 class="text-2xl md:text-3xl text-slate-800 dark:text-slate-100 font-bold">Gerenciar Papéis</h1>
                 </div>
-                <!-- Botão para criar novo papel, visível apenas se o usuário tiver permissão -->
                 <div v-if="canCreateRoles" class="grid grid-flow-col sm:auto-cols-max justify-start sm:justify-end gap-2">
                     <Link :href="route('admin.roles.create')">
                         <Button variant="default">
@@ -112,13 +89,7 @@ const flashError = computed(() => page.props.flash.error);
                 </div>
             </div>
 
-            <!-- Exibição de Mensagens Flash (Sucesso/Erro) -->
-            <div v-if="flashSuccess" class="mb-4 p-4 bg-green-100 dark:bg-green-700 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-100 rounded shadow">
-                {{ flashSuccess }}
-            </div>
-            <div v-if="flashError" class="mb-4 p-4 bg-red-100 dark:bg-red-700 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-100 rounded shadow">
-                {{ flashError }}
-            </div>
+
 
             <!-- Tabela de Papéis -->
             <div class="bg-white dark:bg-slate-800 shadow-lg rounded-sm border border-slate-200 dark:border-slate-700 relative">
@@ -135,50 +106,46 @@ const flashError = computed(() => page.props.flash.error);
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            <!-- Mensagem caso não haja papéis -->
                             <TableRow v-if="roles.data.length === 0">
-                                <TableCell colspan="6" class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-center text-sm text-slate-500 dark:text-slate-400">
+                                <TableCell colspan="6" class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-center">
                                     Nenhum papel encontrado.
                                 </TableCell>
                             </TableRow>
-                            <!-- Linhas da tabela para cada papel -->
-                            <TableRow v-for="role in roles.data" :key="role.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/20">
+                            <TableRow v-for="role in roles.data" :key="role.id">
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap">
                                     <div class="font-medium text-slate-800 dark:text-slate-100">{{ role.name }}</div>
                                 </TableCell>
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap">
-                                    <div class="text-sm text-slate-600 dark:text-slate-300">{{ role.description || '-' }}</div>
+                                    <div>{{ role.description || '-' }}</div>
                                 </TableCell>
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-center">
-                                    <div class="text-center text-sm">{{ role.level }}</div>
+                                    <div class="text-center">{{ role.level }}</div>
                                 </TableCell>
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-center">
-                                     <div class="inline-flex items-center justify-center text-sm">
+                                     <div class="inline-flex items-center justify-center">
                                         <Users class="w-4 h-4 mr-1 text-slate-400 dark:text-slate-500" />
                                         {{ role.users_count }}
                                     </div>
                                 </TableCell>
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-center">
-                                    <div class="inline-flex items-center justify-center text-sm">
+                                    <div class="inline-flex items-center justify-center">
                                         <ShieldCheck class="w-4 h-4 mr-1 text-slate-400 dark:text-slate-500" />
                                         {{ role.permissions_count }}
                                     </div>
                                 </TableCell>
                                 <TableCell class="px-2 first:pl-5 last:pr-5 py-3 whitespace-nowrap text-right">
-                                    <!-- Menu de Ações (Editar/Excluir) -->
                                     <DropdownMenu v-if="canUpdateRoles || canDeleteRoles">
                                         <DropdownMenuTrigger as-child>
-                                            <Button variant="ghost" size="sm" class="h-8 w-8 p-0">
+                                            <Button variant="ghost" size="sm">
                                                 <MoreHorizontal class="w-4 h-4" />
-                                                <span class="sr-only">Abrir menu</span>
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
-                                            <DropdownMenuItem v-if="canUpdateRoles" @click="router.get(route('admin.roles.edit', role.id))" class="cursor-pointer">
+                                            <DropdownMenuItem v-if="canUpdateRoles" @click="router.get(route('admin.roles.edit', role.id))">
                                                 <FilePenLine class="w-4 h-4 mr-2" />
                                                 Editar
                                             </DropdownMenuItem>
-                                            <DropdownMenuItem v-if="canDeleteRoles" @click="confirmDeleteRole(role)" class="text-red-600 hover:!text-red-600 dark:text-red-500 dark:hover:!text-red-500 cursor-pointer">
+                                            <DropdownMenuItem v-if="canDeleteRoles" @click="confirmDeleteRole(role)" class="text-red-600 hover:!text-red-600 dark:text-red-500 dark:hover:!text-red-500">
                                                 <Trash2 class="w-4 h-4 mr-2" />
                                                 Excluir
                                             </DropdownMenuItem>
@@ -190,35 +157,28 @@ const flashError = computed(() => page.props.flash.error);
                     </Table>
                 </div>
             </div>
-            <!-- Componente de Paginação -->
-            <Pagination v-if="roles.data.length > 0 && roles.total > roles.per_page" :pagination="roles" class="mt-6" />
+            <!-- Paginação -->
+            <Pagination v-if="roles.total > roles.per_page" :pagination="roles" class="mt-6" />
         </div>
 
         <!-- Diálogo de Confirmação de Exclusão -->
         <Dialog :open="showDeleteDialog" @update:open="showDeleteDialog = $event">
-            <DialogContent class="sm:max-w-md">
+            <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Confirmar Exclusão de Papel</DialogTitle>
+                    <DialogTitle>Confirmar Exclusão</DialogTitle>
                     <DialogDescription>
                         Tem certeza que deseja excluir o papel "{{ roleToDelete?.name }}"? Esta ação não pode ser desfeita.
-                        Papéis que estão atualmente associados a usuários não poderão ser excluídos.
+                        Papéis associados a usuários não podem ser excluídos.
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter class="mt-4">
+                <DialogFooter>
                     <DialogClose as-child>
                         <Button variant="outline" @click="showDeleteDialog = false">Cancelar</Button>
                     </DialogClose>
-                    <Button variant="destructive" @click="deleteRole" :disabled="router.processing">
-                        <Trash2 v-if="!router.processing" class="w-4 h-4 mr-2" />
-                        <svg v-else class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {{ router.processing ? 'Excluindo...' : 'Excluir Papel' }}
-                    </Button>
+                    <Button variant="destructive" @click="deleteRole">Excluir</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
 
-    </AppLayout>
+    </AdminLayout>
 </template>

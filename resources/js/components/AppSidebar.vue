@@ -20,7 +20,7 @@ const mainNavItems: NavItem[] = [
         title: 'Painel de Controle',
         href: '/dashboard',
         icon: LayoutGrid,
-        permission: 'locations.index' // Example permission, adjust as needed
+        permission: 'dashboar'
     },
     {
         title: 'Contatos',
@@ -47,11 +47,11 @@ const mainNavItems: NavItem[] = [
 
 // Define footer navigation items
 const footerNavItems: NavItem[] = [
-    // {
-    //     title: 'Github Repo',
-    //     href: 'https://github.com/laravel/vue-starter-kit',
-    //     icon: Folder,
-    // },
+    {
+        title: 'Perfis',
+        href: '/admin/roles',
+        icon: Folder,
+    },
     // {
     //     title: 'Documentation',
     //     href: 'https://laravel.com/docs/starter-kits',

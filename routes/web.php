@@ -4,6 +4,7 @@ use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TaskController;
 use App\Http\Middleware\ACLMiddleware;
 use Illuminate\Support\Facades\Route;
@@ -86,6 +87,12 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
     Route::resource('expenses', ExpenseController::class);
 
     Route::resource('financial-transactions', FinancialTransactionController::class);
+
+    Route::prefix('admin')->name('admin.')->group(function () {
+        // $this->authorizeResource(Role::class, 'role'); // Se estiver usando Policies
+        Route::resource('roles', RoleController::class)->except(['show']);
+        // A rota 'show' para um papel individual pode não ser necessária se a edição já mostra os detalhes.
+    });
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)
