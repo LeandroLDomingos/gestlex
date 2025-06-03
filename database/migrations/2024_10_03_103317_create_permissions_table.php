@@ -17,17 +17,21 @@ return new class extends Migration
             $table->string('description')->nullable();
             $table->timestamps();
         });
-
+        
         Schema::create('permission_user', function (Blueprint $table) {
             $table->uuid('permission_id');
-            
-            // This is the corrected part
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            // Defina user_id como uma foreignId normal, sem ser a chave primária por si só.
+            // O tipo deve corresponder ao tipo da coluna 'id' na sua tabela 'users'.
+            // Se 'users.id' for bigIncrements (padrão do Laravel), use foreignId.
+            // Se 'users.id' for UUID, use $table->foreignUuid('user_id').
+            $table->foreignId('user_id'); // Alterado de $table->id('user_id')
 
+            // Definir a chave primária composta
             $table->primary(['permission_id', 'user_id']);
+
+            // Definir as chaves estrangeiras
             $table->foreign('permission_id')->references('id')->on('permissions')->onDelete('cascade');
-            
-            // The foreign key for user_id is now handled by constrained()
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
             
             $table->timestamps();
         });

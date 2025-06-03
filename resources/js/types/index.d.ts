@@ -34,6 +34,22 @@ export interface User {
   email_verified_at: string | null;
   created_at: string;
   updated_at: string;
+  roles?: Role[];
+  permissions?: Permission[];
+}
+
+export interface Role {
+    id: number;
+    name: string;
+    description: string;
+    level: number;
+    permissions: Permission[];
+}
+
+export interface Permission {
+    id: string;
+    name: string;
+    description: string;
 }
 
 export type ContactType = 'physical' | 'legal'
