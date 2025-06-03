@@ -5,6 +5,7 @@ use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\TaskController;
+use App\Http\Middleware\ACLMiddleware;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -13,7 +14,7 @@ Route::get('/', function () {
 })->name('home');
 
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
