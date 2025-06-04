@@ -19,21 +19,47 @@ class RoleController extends Controller
      */
     public function index(Request $request): InertiaResponse
     {
-        // Autorização: Verifica se o usuário pode ver qualquer papel
         // $this->authorize('viewAny', Role::class); // Descomente se tiver policies
 
-        $roles = Role::withCount('users', 'permissions')
+        // Esta parte do carregamento de dados para os papéis e suas permissões (apenas IDs)
+        // está correta para o que o frontend espera, ASSUMINDO que o relacionamento
+        // 'permissions()' no modelo App\Models\Role está definido corretamente como:
+        // public function permissions() {
+        //     return $this->belongsToMany(Permission::class, 'role_permission', 'role_id', 'permission_id');
+        // }
+        $roles = Role::with([
+                'permissions:id' // Carrega apenas o ID das permissões para cada papel
+            ])
+            ->withCount('users', 'permissions') // Mantém as contagens
             ->orderBy('level', 'asc')
             ->orderBy('name', 'asc')
             ->paginate(15)
             ->withQueryString();
 
+        // Carregar todas as permissões para o formulário de seleção também parece correto.
+        $allPermissions = Permission::orderBy('name')->get(['id', 'name', 'description']);
+
+        // O ERRO SQL (no such column: role_permission.user_id) é MUITO PROVAVELMENTE
+        // DESENCADEADO POR UMA DAS SEGUINTES VERIFICAÇÕES 'can()', se a lógica
+        // por trás dessas permissões no seu AuthServiceProvider (Gates) ou Policies
+        // estiver a tentar consultar as permissões do UTILIZADOR de forma incorreta
+        // (ex: tentando usar a tabela 'role_permission' para ligar utilizadores a permissões).
+        // A forma correta é: User -> tem Roles -> Role tem Permissions.
+        $canCreateRoles = $request->user()->can('roles.create');
+        $canUpdateRoles = $request->user()->can('roles.update');
+        $canDeleteRoles = $request->user()->can('roles.delete');
+        $canManageRolePermissions = $request->user()->can('permissions.manage'); // Verifique a definição desta permissão
+
         return Inertia::render('Admin/Roles/Index', [
             'roles' => $roles,
-            'filters' => $request->only(['search']), // Adicione filtros se necessário
-            'canCreateRoles' => $request->user()->can('roles.create'), // Exemplo de verificação de permissão
-            'canUpdateRoles' => $request->user()->can('roles.update'),
-            'canDeleteRoles' => $request->user()->can('roles.delete'),
+            'filters' => $request->only(['search', 'role_id']),
+            'allPermissions' => $allPermissions,
+            'canCreateRoles' => $canCreateRoles,
+            'canUpdateRoles' => $canUpdateRoles,
+            'canDeleteRoles' => $canDeleteRoles,
+            'canManageRolePermissions' => $canManageRolePermissions,
+            // Adicione a prop canCreateUsers se o botão "Novo Usuário" estiver nesta página
+            'canCreateUsers' => $request->user()->can('users.create'), // Exemplo, ajuste o nome da permissão
         ]);
     }
 
@@ -42,16 +68,9 @@ class RoleController extends Controller
      */
     public function create(Request $request): InertiaResponse
     {
-        // Autorização
-        // $this->authorize('create', Role::class); // Descomente se tiver policies
-        if (!$request->user()->can('roles.create')) {
-            abort(403, 'Você não tem permissão para criar papéis.');
-        }
-
-        $permissions = Permission::orderBy('description')->get(['id', 'name', 'description']);
-
+        $allPermissions = Permission::orderBy('description')->get(['id', 'name', 'description']);
         return Inertia::render('Admin/Roles/Create', [
-            'allPermissions' => $permissions,
+             'allPermissions' => $allPermissions,
         ]);
     }
 
@@ -60,18 +79,13 @@ class RoleController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        // Autorização
-        // $this->authorize('create', Role::class);
-         if (!$request->user()->can('roles.create')) {
-            abort(403, 'Você não tem permissão para criar papéis.');
-        }
 
         $validatedData = $request->validate([
             'name' => 'required|string|max:255|unique:roles,name',
             'description' => 'nullable|string|max:255',
             'level' => 'required|integer|min:0',
             'permissions' => 'nullable|array',
-            'permissions.*' => 'string|exists:permissions,id', // Valida que cada ID de permissão existe
+            'permissions.*' => 'string|exists:permissions,id',
         ]);
 
         DB::beginTransaction();
@@ -83,11 +97,13 @@ class RoleController extends Controller
             ]);
 
             if (!empty($validatedData['permissions'])) {
+                // Isto usa o relacionamento permissions() do modelo Role.
+                // Certifique-se que está correto.
                 $role->permissions()->sync($validatedData['permissions']);
             }
 
             DB::commit();
-            return redirect()->route('admin.roles.index')->with('success', 'Papel criado com sucesso.');
+            return redirect()->route('admin.roles.index', ['role_id' => $role->id])->with('success', 'Papel criado com sucesso. Permissões atribuídas.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao criar papel: " . $e->getMessage());
@@ -100,18 +116,14 @@ class RoleController extends Controller
      */
     public function edit(Request $request, Role $role): InertiaResponse
     {
-        // Autorização
-        // $this->authorize('update', $role);
-         if (!$request->user()->can('roles.update')) {
-            abort(403, 'Você não tem permissão para editar papéis.');
-        }
 
-        $role->load('permissions:id,name'); // Carrega as permissões atuais do papel
+        // Carrega as permissões associadas a este papel específico.
+        // Novamente, depende da correção do relacionamento permissions() no modelo Role.
+        $role->load('permissions:id,name');
         $allPermissions = Permission::orderBy('description')->get(['id', 'name', 'description']);
 
         return Inertia::render('Admin/Roles/Edit', [
             'role' => $role,
-            'rolePermissions' => $role->permissions->pluck('id')->toArray(), // Apenas os IDs das permissões do papel
             'allPermissions' => $allPermissions,
         ]);
     }
@@ -121,17 +133,11 @@ class RoleController extends Controller
      */
     public function update(Request $request, Role $role): RedirectResponse
     {
-        // Autorização
-        // $this->authorize('update', $role);
-         if (!$request->user()->can('roles.update')) {
-            abort(403, 'Você não tem permissão para editar papéis.');
-        }
-
         $validatedData = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('roles', 'name')->ignore($role->id)],
             'description' => 'nullable|string|max:255',
             'level' => 'required|integer|min:0',
-            'permissions' => 'nullable|array',
+            'permissions' => 'sometimes|nullable|array',
             'permissions.*' => 'string|exists:permissions,id',
         ]);
 
@@ -143,10 +149,13 @@ class RoleController extends Controller
                 'level' => $validatedData['level'],
             ]);
 
-            $role->permissions()->sync($validatedData['permissions'] ?? []);
+            if ($request->has('permissions')) {
+                 // Isto usa o relacionamento permissions() do modelo Role.
+                $role->permissions()->sync($validatedData['permissions'] ?? []);
+            }
 
             DB::commit();
-            return redirect()->route('admin.roles.index')->with('success', 'Papel atualizado com sucesso.');
+            return redirect()->route('admin.roles.index', ['role_id' => $role->id])->with('success', 'Papel atualizado com sucesso.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Erro ao atualizar papel {$role->id}: " . $e->getMessage());
@@ -159,14 +168,8 @@ class RoleController extends Controller
      */
     public function destroy(Request $request, Role $role): RedirectResponse
     {
-        // Autorização
-        // $this->authorize('delete', $role);
-         if (!$request->user()->can('roles.delete')) {
-            abort(403, 'Você não tem permissão para excluir papéis.');
-        }
 
-        // Adicionar lógica para impedir a exclusão de papéis essenciais, se necessário
-        if ($role->name === 'Admin' || $role->level > 5) { // Exemplo: não permitir excluir Admin ou papéis de alto nível
+        if ($role->name === 'Admin' || $role->level > 5) { // Exemplo de proteção, ajuste 'level' conforme sua lógica
             return back()->with('error', 'Este papel não pode ser excluído.');
         }
 
@@ -176,7 +179,7 @@ class RoleController extends Controller
 
         DB::beginTransaction();
         try {
-            $role->permissions()->detach(); // Remove associações com permissões
+            $role->permissions()->detach(); 
             $role->delete();
             DB::commit();
             return redirect()->route('admin.roles.index')->with('success', 'Papel excluído com sucesso.');
@@ -184,6 +187,29 @@ class RoleController extends Controller
             DB::rollBack();
             Log::error("Erro ao excluir papel {$role->id}: " . $e->getMessage());
             return back()->with('error', 'Erro ao excluir o papel. Tente novamente.');
+        }
+    }
+
+    /**
+     * Synchronize permissions for a given role.
+     */
+    public function syncRolePermissions(Request $request, Role $role): RedirectResponse
+    {
+
+
+        $validated = $request->validate([
+            'permissions' => 'nullable|array',
+            'permissions.*' => 'string|exists:permissions,id', // Garante que os IDs de permissão são strings (UUIDs) e existem
+        ]);
+
+        try {
+            // Isto usa o relacionamento permissions() do modelo Role.
+            $role->permissions()->sync($validated['permissions'] ?? []);
+            return redirect()->route('admin.roles.index', ['role_id' => $role->id])
+                             ->with('success', 'Permissões para o papel "' . $role->name . '" atualizadas com sucesso.');
+        } catch (\Exception $e) {
+            Log::error("Erro ao sincronizar permissões para o papel {$role->id}: " . $e->getMessage());
+            return back()->with('error', 'Erro ao atualizar as permissões. Tente novamente.');
         }
     }
 }

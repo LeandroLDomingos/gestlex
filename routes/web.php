@@ -91,8 +91,13 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
     Route::prefix('admin')->name('admin.')->group(function () {
         // $this->authorizeResource(Role::class, 'role'); // Se estiver usando Policies
         Route::resource('roles', RoleController::class)->except(['show']);
+        Route::resource('users', RoleController::class)->except(['show']);
         // A rota 'show' para um papel individual pode não ser necessária se a edição já mostra os detalhes.
+
     });
+    
+    Route::put('/admin/roles/{role}/permissions', [RoleController::class, 'syncRolePermissions'])
+->name('admin.roles.permissions.sync');
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)

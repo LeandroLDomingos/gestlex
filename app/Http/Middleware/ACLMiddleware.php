@@ -29,7 +29,7 @@ class ACLMiddleware
         // Para cada role do usuário, a closure verifica se $role->level > 5.
         // Se qualquer uma das roles satisfizer essa condição, o usuário
         // tem acesso irrestrito e a requisição prossegue.
-        if ($user->roles->contains(fn($role) => $role->level > 5)) {
+        if ($user->roles->contains(fn($role) => $role->level > 7)) {
             return $next($request);
         }
 

@@ -66,4 +66,21 @@ class User extends Authenticatable
         // Arguments: Related model, pivot table name, foreign pivot key for current model, foreign pivot key for related model
         return $this->belongsToMany(Permission::class, 'permission_user', 'user_id', 'permission_id');
     }
+
+    // Para obter as permissões de um utilizador através dos seus papéis:
+    public function hasPermissionTo(string $permissionName): bool
+    {
+        foreach ($this->roles as $role) {
+            if ($role->permissions()->where('name', $permissionName)->exists()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Ou para obter todas as permissões do utilizador (pode ser otimizado)
+    public function getAllPermissions(): \Illuminate\Support\Collection
+    {
+        return $this->roles()->with('permissions:id,name')->get()->pluck('permissions')->flatten()->unique('id');
+    }
 }
