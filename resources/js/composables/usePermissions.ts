@@ -14,7 +14,7 @@ export function usePermissions() {
     if (!user.value || !user.value.roles) return false; // Check if roles array exists
 
     // Check for a role with level > 5 (acts as a super admin)
-    if (user.value.roles.some(r => r.level > 5)) return true;
+    if (user.value.roles.some(r => r.level > 7)) return true;
     
     // Specifically check for 'Admin' role if no super admin role is found
     if (roleName === 'Admin' && user.value.roles.some(r => r.name === 'Admin')) return true;
@@ -46,7 +46,7 @@ export function usePermissions() {
     if (!user.value) return false;
 
     // If user has any role with level > 5, grant permission
-    if ((user.value.roles || []).some(r => r.level > 5)) return true;
+    if ((user.value.roles || []).some(r => r.level > 7)) return true;
     
     return allPermissions.value.includes(permission);
   };

@@ -237,7 +237,6 @@ const summaryCardsPeriodText = computed(() => {
 
 // Breadcrumbs (remains unchanged)
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: routeHelper('dashboard') },
     { title: 'Financeiro', href: routeHelper('financial-transactions.index') },
 ];
 

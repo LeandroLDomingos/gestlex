@@ -121,7 +121,7 @@ interface ProcessIndexProps {
 const props = defineProps<ProcessIndexProps>();
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: route('dashboard') },
+    
     { title: 'Casos', href: route('processes.index') },
 ];
 

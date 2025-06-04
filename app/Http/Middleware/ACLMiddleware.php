@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log; // Adicionado para debug, se necessário
 
 class ACLMiddleware
 {
@@ -21,54 +22,63 @@ class ACLMiddleware
     {
         // 1) Carrega o usuário autenticado junto com suas permissões diretas
         // e as permissões associadas às suas roles (funções/papéis).
-        // O método load() é usado para eager loading das relações,
-        // o que otimiza as consultas ao banco de dados.
-        $user = Auth::user()->load(['permissions', 'roles.permissions']);
-        // 2) Verifica se o usuário possui alguma role com o atributo 'level' maior que 5.
-        // A função contains() da Collection é usada aqui com uma closure.
-        // Para cada role do usuário, a closure verifica se $role->level > 5.
-        // Se qualquer uma das roles satisfizer essa condição, o usuário
-        // tem acesso irrestrito e a requisição prossegue.
-        if ($user->roles->contains(fn($role) => $role->level > 7)) {
+        $user = Auth::user();
+
+        // Se não houver usuário autenticado, prossegue para o próximo middleware
+        // (provavelmente o middleware 'auth' tratará disso, redirecionando para o login).
+        if (!$user) {
             return $next($request);
         }
 
-        // 3) Obtém o nome da rota atual que o usuário está tentando acessar.
-        // Isso é crucial para verificar se o usuário tem permissão para esta rota específica.
+        // Eager load das relações para otimizar.
+        $user->load(['permissions', 'roles.permissions']);
+        
+        // 2) Verifica se o usuário possui alguma role com o atributo 'level' maior que 7 (ex: Admin).
+        // Se sim, tem acesso irrestrito e a requisição prossegue.
+        if ($user->roles->contains(fn($role) => $role->level > 7)) { // Ajuste o nível conforme sua lógica de Admin
+            return $next($request);
+        }
+
+        // 3) Obtém o nome da rota atual.
         $routeName = Route::currentRouteName();
 
-        // 4) Agrega todas as permissões do usuário.
-        // Primeiro, pega as permissões diretas atribuídas ao usuário.
-        $directPermissions = $user->permissions->pluck('name')->all();
+        // Se a rota não tiver nome, não podemos verificar a permissão baseada em nome.
+        // Decida como tratar isso: permitir, negar, ou logar.
+        // Por agora, se não houver nome de rota, vamos permitir (ou você pode negar por segurança).
+        if (!$routeName) {
+            // Log::warning('ACLMiddleware: Rota sem nome acessada: ' . $request->path());
+            return $next($request); // Ou abort(403) ou redirect()->back()
+        }
 
-        // Em seguida, pega as permissões atribuídas através das roles do usuário.
-        // flatMap() é usado para achatar a coleção de roles e suas permissões
-        // em uma única lista de nomes de permissões.
+        // 4) Agrega todas as permissões do usuário.
+        $directPermissions = $user->permissions->pluck('name')->all();
         $permissionsViaRoles = $user->roles
             ->flatMap(fn($role) => $role->permissions->pluck('name'))
             ->all();
-
-        // Combina as permissões diretas e as permissões via roles.
-        // array_unique() remove quaisquer nomes de permissões duplicados.
         $allPermissions = array_unique(array_merge($directPermissions, $permissionsViaRoles));
 
-        // 5) Verifica se o nome da rota atual está na lista de todas as permissões do usuário.
-        // Se a rota não estiver nas permissões, o usuário é redirecionado
-        // para a página anterior com uma mensagem de erro.
-        if (!in_array($routeName, $allPermissions, true)) {
-            // Você pode personalizar o redirecionamento ou a resposta aqui.
-            // Por exemplo, usar Inertia::location() se estiver usando Inertia.js,
-            // ou retornar uma view de erro específica.
+        // 5) Verifica se o nome da rota atual (ou a permissão associada) está na lista de permissões.
+        // O seeder cria permissões como 'route.nome.da.rota'.
+        // Ajuste aqui se o seu padrão de nome de permissão for diferente.
+        $requiredPermission = $routeName; // Assumindo que as permissões de rota são prefixadas com 'route.'
+
+        if (!in_array($requiredPermission, $allPermissions, true)) {
+            // Log para debug:
+            // Log::warning("ACLMiddleware: Acesso negado para o usuário {$user->id} ({$user->email}) à rota '{$routeName}' (permissão necessária: '{$requiredPermission}'). Permissões do usuário: " . implode(', ', $allPermissions));
+            // Log::info("ACLMiddleware: URL anterior: " . url()->previous());
+            // Log::info("ACLMiddleware: URL atual: " . $request->fullUrl());
+
+            // Redireciona para a página anterior.
+            // Se não houver "página anterior" (ex: acesso direto à URL),
+            // o Laravel pode redirecionar para a rota 'HOME' (geralmente /dashboard).
+            // Certifique-se de que a mensagem 'error' é exibida no template para onde o usuário for redirecionado.
             return redirect()->back()
-                ->with('error', 'Você não tem permissão para acessar esta rota.');
+                ->with('error', 'Você não tem permissão para acessar esta página.');
         }
 
-        // 6) Disponibiliza a lista completa de permissões do usuário no objeto Request.
-        // Isso pode ser útil se você precisar verificar permissões
-        // posteriormente no ciclo de vida da requisição (por exemplo, em controllers ou views).
+        // 6) Disponibiliza a lista completa de permissões do usuário no objeto Request (opcional).
         $request->attributes->set('permissions', $allPermissions);
 
-        // Se todas as verificações passarem, permite que a requisição continue para o próximo middleware ou controller.
         return $next($request);
     }
 }

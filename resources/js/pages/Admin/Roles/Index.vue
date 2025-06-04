@@ -171,7 +171,7 @@ const getPermissionDisplayLabel = (permission: Permission): string => {
 
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: route('dashboard') },
+    
     { title: 'Admin', href: '#' }, 
     { title: 'Papéis e Permissões', href: route('admin.roles.index') }
 ];

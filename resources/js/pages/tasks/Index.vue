@@ -69,7 +69,7 @@ const route = (name?: string, params?: any, absolute?: boolean): string => {
 
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: route('dashboard') },
+    
     { title: 'Quadro de Tarefas', href: route('tasks.index') },
 ];
 

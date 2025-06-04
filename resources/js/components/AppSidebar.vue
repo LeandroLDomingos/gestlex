@@ -5,7 +5,7 @@ import NavUser from '@/components/NavUser.vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types'; // Make sure NavItem includes 'permission'
 import { Link } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Contact, Signature, ClipboardCheck, DollarSign } from 'lucide-vue-next';
+import { BookOpen, Folder, LayoutGrid, Contact, Signature, ClipboardCheck, DollarSign, Shield, Users } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { computed } from 'vue'; // Import computed
@@ -17,31 +17,28 @@ const { can } = usePermissions();
 // If 'permission' is present, the item will only be shown if the user 'can' perform that action.
 const mainNavItems: NavItem[] = [
     {
-        title: 'Painel de Controle',
-        href: '/dashboard',
-        icon: LayoutGrid,
-        permission: 'dashboar'
-    },
-    {
         title: 'Contatos',
         href: '/contacts',
         icon: Contact,
-        // No specific permission, implies this item is always shown or access is controlled at the route level
+        permission: 'contacts.index'
     },
     {
         title: 'Casos',
         href: '/processes',
         icon: Signature,
+        permission: 'processes.index'
     },
     {
         title: 'Tarefas',
         href: '/tasks',
         icon: ClipboardCheck,
+        permission: 'tasks.index'
     },
     {
         title: 'Finanças', // Corrected typo from "Financias"
         href: '/financial-transactions',
         icon: DollarSign,
+        permission: 'financial-transactions.index'
     },
 ];
 
@@ -50,13 +47,15 @@ const footerNavItems: NavItem[] = [
     {
         title: 'Perfis',
         href: '/admin/roles',
-        icon: Folder,
+        icon: Shield,
+        permission: 'roles.index'
     },
-    // {
-    //     title: 'Documentation',
-    //     href: 'https://laravel.com/docs/starter-kits',
-    //     icon: BookOpen,
-    // },
+    {
+        title: 'Usuários',
+        href: '/admin/users',
+        icon: Users,
+        permission: 'users.index'
+    },
 ];
 
 // Create a computed property to filter main navigation items based on user permissions.
@@ -77,7 +76,7 @@ const filteredFooterItems = computed(() => {
             <SidebarMenu>
                 <SidebarMenuItem>
                     <SidebarMenuButton size="lg" as-child>
-                        <Link :href="route('dashboard')">
+                        <Link :href="route('contacts.index')">
                         <AppLogo />
                         </Link>
                     </SidebarMenuButton>

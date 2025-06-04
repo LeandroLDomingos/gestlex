@@ -6,6 +6,7 @@ use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\UserController;
 use App\Http\Middleware\ACLMiddleware;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -14,9 +15,6 @@ Route::get('/', function () {
     return Inertia::render('Welcome');
 })->name('home');
 
-Route::get('dashboard', function () {
-    return Inertia::render('Dashboard');
-})->name('dashboard')->middleware('auth');
 
 Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function () {
 
@@ -91,13 +89,13 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
     Route::prefix('admin')->name('admin.')->group(function () {
         // $this->authorizeResource(Role::class, 'role'); // Se estiver usando Policies
         Route::resource('roles', RoleController::class)->except(['show']);
-        Route::resource('users', RoleController::class)->except(['show']);
+        Route::resource('users', UserController::class)->except(['show']);
         // A rota 'show' para um papel individual pode não ser necessária se a edição já mostra os detalhes.
 
     });
-    
+
     Route::put('/admin/roles/{role}/permissions', [RoleController::class, 'syncRolePermissions'])
-->name('admin.roles.permissions.sync');
+        ->name('admin.roles.permissions.sync');
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)
