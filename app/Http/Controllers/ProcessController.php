@@ -289,10 +289,21 @@ class ProcessController extends Controller
             'responsible_id' => 'nullable|exists:users,id',
             'workflow' => ['required', 'string', Rule::in(array_keys(Process::WORKFLOWS ?? []))],
             'stage' => ['required', 'integer'],
-            'due_date' => 'nullable|date_format:Y-m-d',
+            'due_date' => 'nullable|date_format:Y-m-d', // Este campo não foi mencionado no form Vue, mas mantenho a validação caso exista em outro contexto
             'priority' => ['required', Rule::in(array_keys(Process::PRIORITIES ?? []))],
             'origin' => 'nullable|string|max:100',
             'status' => ['nullable', 'string', Rule::in(array_keys(Process::STATUSES ?? []))],
+
+            // Validação para os novos campos de consulta <<< ADICIONADO
+            'payment.charge_consultation' => 'required|boolean',
+            'payment.consultation_fee_amount' => [
+                'nullable',
+                'numeric',
+                'min:0.01',
+                Rule::requiredIf(fn() => $request->input('payment.charge_consultation') == true),
+            ],
+
+            // Validações existentes para o pagamento principal
             'payment.total_amount' => 'nullable|numeric|min:0.01|required_with:payment.payment_type',
             'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
             'payment.payment_type' => [
@@ -300,7 +311,7 @@ class ProcessController extends Controller
                 'string',
                 Rule::requiredIf(fn() => !empty($request->input('payment.total_amount')) && (float) $request->input('payment.total_amount') > 0),
                 new EnumRule(PaymentType::class),
-                Rule::notIn([PaymentType::HONORARIO->value])
+                Rule::notIn([PaymentType::HONORARIO->value]) // Garante que o tipo de pagamento principal não seja HONORARIO
             ],
             'payment.payment_method' => 'nullable|string|max:100',
             'payment.single_payment_date' => [
@@ -311,6 +322,7 @@ class ProcessController extends Controller
                     $paymentType = $payment['payment_type'] ?? null;
                     $totalAmount = isset($payment['total_amount']) ? (float) $payment['total_amount'] : 0;
                     $advanceAmount = isset($payment['advance_payment_amount']) ? (float) $payment['advance_payment_amount'] : 0;
+                    // Requerido se for pagamento à vista sem entrada, ou se houver entrada (para a data da entrada)
                     $isFullPaymentAtOnce = ($paymentType === PaymentType::A_VISTA->value && $totalAmount > 0 && $advanceAmount == 0);
                     $hasAdvancePayment = ($advanceAmount > 0);
                     return $isFullPaymentAtOnce || $hasAdvancePayment;
@@ -351,12 +363,33 @@ class ProcessController extends Controller
         try {
             $processData = collect($validatedData)->except('payment')->all();
             $process = Process::create($processData);
-            $paymentInput = $validatedData['payment'] ?? null;
 
-            if ($paymentInput && isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] > 0 && isset($paymentInput['payment_type'])) {
+            $paymentInput = $validatedData['payment'] ?? []; // Garante que $paymentInput seja um array
+
+            // Lógica para criar o honorário da consulta <<< ADICIONADO
+            if (isset($paymentInput['charge_consultation']) && $paymentInput['charge_consultation'] == true && isset($paymentInput['consultation_fee_amount']) && (float) $paymentInput['consultation_fee_amount'] > 0) {
+                $consultationFeeAmount = (float) $paymentInput['consultation_fee_amount'];
+                $process->payments()->create([
+                    'id' => Str::uuid()->toString(),
+                    'total_amount' => $consultationFeeAmount,
+                    'down_payment_amount' => 0, // Honorário não tem entrada em si
+                    'payment_type' => PaymentType::HONORARIO, // <<< Certifique-se que este Enum exista
+                    'payment_method' => $paymentInput['payment_method'] ?? null, // Pode usar o mesmo método do principal ou um específico
+                    'down_payment_date' => null,
+                    'number_of_installments' => 1,
+                    'value_of_installment' => $consultationFeeAmount,
+                    'status' => ProcessPayment::STATUS_PENDING, // Ou STATUS_PAID se for pago imediatamente
+                    'first_installment_due_date' => Carbon::today()->toDateString(), // Vencimento hoje, ou pode ser configurável
+                    'notes' => 'Honorário de Consulta Inicial',
+                    // 'transaction_nature' => 'income', // Se você usar este campo para diferenciar entrada/saída
+                ]);
+            }
+
+            // Lógica existente para pagamento principal (contrato/serviço)
+            if (isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] > 0 && isset($paymentInput['payment_type'])) {
                 $purchaseTotalAmount = (float) $paymentInput['total_amount'];
                 $downPaymentAmountFromInput = isset($paymentInput['advance_payment_amount']) ? (float) $paymentInput['advance_payment_amount'] : 0;
-                $paymentTypeFromInput = PaymentType::from($paymentInput['payment_type']);
+                $paymentTypeFromInput = PaymentType::from($paymentInput['payment_type']); // Já validado que não é HONORARIO aqui
                 $paymentMethodFromInput = $paymentInput['payment_method'] ?? null;
                 $notesFromInput = $paymentInput['notes'] ?? null;
                 $dateForEntryOrSinglePayment = $paymentInput['single_payment_date'] ?? null;
@@ -366,15 +399,16 @@ class ProcessController extends Controller
                     $process->payments()->create([
                         'id' => Str::uuid()->toString(),
                         'total_amount' => $downPaymentAmountFromInput,
-                        'down_payment_amount' => $downPaymentAmountFromInput,
-                        'payment_type' => $paymentTypeFromInput,
+                        'down_payment_amount' => $downPaymentAmountFromInput, // A entrada é um pagamento total do valor da entrada
+                        'payment_type' => $paymentTypeFromInput, // Tipo do pagamento principal
                         'payment_method' => $paymentMethodFromInput,
                         'down_payment_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
-                        'number_of_installments' => ($paymentTypeFromInput === PaymentType::PARCELADO && $amountToFinance > 0) ? (int) ($paymentInput['number_of_installments'] ?? 1) : 1,
+                        'number_of_installments' => 1, // A entrada é considerada uma "parcela" única do valor da entrada
                         'value_of_installment' => $downPaymentAmountFromInput,
-                        'status' => ProcessPayment::STATUS_PAID,
+                        'status' => ProcessPayment::STATUS_PAID, // Assume-se que a entrada é paga no ato ou na data informada. Mude para PENDING se necessário.
                         'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
                         'notes' => $notesFromInput ? $notesFromInput . ' (Entrada)' : 'Entrada do pagamento',
+                        // 'transaction_nature' => 'income', // Se aplicável
                     ]);
                 }
 
@@ -390,19 +424,21 @@ class ProcessController extends Controller
                             'number_of_installments' => 1,
                             'value_of_installment' => $amountToFinance,
                             'status' => ProcessPayment::STATUS_PENDING,
-                            'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
+                            'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null, // Se não houve entrada, esta é a data do pagamento único
                             'notes' => $notesFromInput ?? 'Pagamento à vista (restante)',
+                            // 'transaction_nature' => 'income', // Se aplicável
                         ]);
                     } elseif ($paymentTypeFromInput === PaymentType::PARCELADO) {
                         $numberOfInstallmentsForFinancing = (int) ($paymentInput['number_of_installments'] ?? 1);
                         if ($numberOfInstallmentsForFinancing <= 0)
                             $numberOfInstallmentsForFinancing = 1;
+
                         $baseInstallmentValue = round($amountToFinance / $numberOfInstallmentsForFinancing, 2);
                         $currentDueDate = Carbon::parse($paymentInput['first_installment_due_date']);
 
                         for ($i = 1; $i <= $numberOfInstallmentsForFinancing; $i++) {
                             $currentInstallmentValue = $baseInstallmentValue;
-                            if ($i === $numberOfInstallmentsForFinancing) {
+                            if ($i === $numberOfInstallmentsForFinancing) { // Ajuste para a última parcela
                                 $sumOfPreviousInstallments = round($baseInstallmentValue * ($numberOfInstallmentsForFinancing - 1), 2);
                                 $currentInstallmentValue = round($amountToFinance - $sumOfPreviousInstallments, 2);
                             }
@@ -417,11 +453,12 @@ class ProcessController extends Controller
                                 'payment_type' => $paymentTypeFromInput,
                                 'payment_method' => $paymentMethodFromInput,
                                 'down_payment_date' => null,
-                                'number_of_installments' => $numberOfInstallmentsForFinancing,
+                                'number_of_installments' => $numberOfInstallmentsForFinancing, // Número total de parcelas do financiamento
                                 'value_of_installment' => $currentInstallmentValue,
                                 'status' => ProcessPayment::STATUS_PENDING,
                                 'first_installment_due_date' => $currentDueDate->copy()->toDateString(),
                                 'notes' => $parcelSpecificNotes,
+                                // 'transaction_nature' => 'income', // Se aplicável
                             ]);
                             if ($i < $numberOfInstallmentsForFinancing) {
                                 $currentDueDate->addMonthNoOverflow();
@@ -429,14 +466,23 @@ class ProcessController extends Controller
                         }
                     }
                 } elseif ($purchaseTotalAmount > 0 && $downPaymentAmountFromInput === $purchaseTotalAmount) {
+                    // Caso o valor total seja igual à entrada (pagamento único via campo de entrada)
+                    // A entrada já foi registrada como PAGA. Podemos apenas garantir que a nota reflita isso.
                     $entryPaymentRecord = $process->payments()
-                        ->where('down_payment_amount', $downPaymentAmountFromInput)
-                        ->where('total_amount', $downPaymentAmountFromInput)
-                        ->latest()->first();
-                    if ($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1) {
+                        ->where('payment_type', $paymentTypeFromInput) // Garante que é do mesmo tipo de pagamento principal
+                        ->where('total_amount', $downPaymentAmountFromInput) // Compara o total_amount do pagamento com a entrada
+                        ->orderBy('created_at', 'desc') // Pega o mais recente, caso haja duplicidade teórica
+                        ->first();
+
+                    if ($entryPaymentRecord) {
+                        $updatedNotes = $entryPaymentRecord->notes;
+                        if (!Str::contains($updatedNotes, 'Quitado integralmente')) {
+                            $updatedNotes = ($updatedNotes ? Str::replaceLast(' (Entrada)', '', $updatedNotes) : 'Pagamento');
+                            $updatedNotes .= ' (Quitado integralmente)';
+                        }
                         $entryPaymentRecord->update([
                             'number_of_installments' => 1,
-                            'notes' => ($entryPaymentRecord->notes ?? '') . ' (Quitado integralmente com entrada)'
+                            'notes' => $updatedNotes,
                         ]);
                     }
                 }
@@ -599,7 +645,7 @@ class ProcessController extends Controller
             return back()->with('error', 'Ocorreu um erro inesperado ao adicionar os honorários: ' . $e->getMessage());
         }
     }
-    
+
     // NOVO MÉTODO PARA ATUALIZAR HONORÁRIOS
     public function updateFee(Request $request, Process $process, ProcessPayment $fee) // Route Model Binding para o ProcessPayment
     {

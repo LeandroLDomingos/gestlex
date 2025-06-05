@@ -5,11 +5,9 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-// import { Badge } from '@/components/ui/badge'; // Não usado neste arquivo
-// import { Separator } from '@/components/ui/separator'; // Não usado neste arquivo
-import { Input } from '@/components/ui/input'; // Assumindo que o Input.vue está em @/components/ui/input/Input.vue
-import { Label } from '@/components/ui/label'; // Assumindo que o Label.vue está em @/components/ui/label/Label.vue
-// import { Checkbox } from '@/components/ui/checkbox'; // Não usado neste arquivo
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+// import { Checkbox } from '@/components/ui/checkbox'; // <<< REMOVIDO IMPORT
 import {
     Select,
     SelectContent,
@@ -18,8 +16,7 @@ import {
     SelectValue,
     SelectGroup,
     SelectLabel
-} from '@/components/ui/select';
-// import { type User, type Contact, type SharedData } from '@/types'; // SharedData não usado diretamente aqui
+} from '@/components/ui/select'; // Select já está importado
 
 // Tipos
 interface BreadcrumbItem {
@@ -27,32 +24,34 @@ interface BreadcrumbItem {
     href: string;
 }
 interface UserSelectItem {
-    id: number | string; // Pode ser string se vier de um select que converte
+    id: number | string;
     name: string;
 }
 interface WorkflowOption {
-    key: string; // Chave do workflow é string
+    key: string;
     label: string;
 }
 interface StageOption {
-    key: number; // Chave do estágio é number
+    key: number;
     label: string;
 }
 interface ContactSelectItem {
-    id: number | string; // Pode ser string se vier de um select
+    id: number | string;
     name: string | null;
     business_name?: string | null;
-    type: 'physical' | 'legal' | string; // Tipo pode ser mais genérico se vier de dados não controlados
+    type: 'physical' | 'legal' | string;
 }
 
 interface PaymentFormData {
+    charge_consultation: boolean | null; // Mantém boolean, o Select vai usar true/false
+    consultation_fee_amount: number | string | null;
     total_amount: number | string | null;
     advance_payment_amount: number | string | null;
     payment_type: 'a_vista' | 'parcelado' | string | null;
     payment_method: string | null;
-    single_payment_date: string | null; // Usado para Data da Entrada ou Data do Pagamento Único à Vista
+    single_payment_date: string | null;
     number_of_installments: number | null;
-    first_installment_due_date: string | null; // Data da 1ª parcela do financiamento
+    first_installment_due_date: string | null;
     notes: string | null;
 }
 
@@ -60,9 +59,9 @@ interface ProcessCreateFormData {
     title: string;
     description: string | null;
     contact_id: string | number | null;
-    responsible_id: string | number | null; // Pode ser string do select, converter para number se necessário no backend
-    workflow: string | null; // Chave do workflow é string
-    stage: number | null;    // MUDADO: de stage_id para stage, tipo number
+    responsible_id: string | number | null;
+    workflow: string | null;
+    stage: number | null;
     priority: string | null;
     origin: string | null;
     status: string | null;
@@ -70,7 +69,7 @@ interface ProcessCreateFormData {
 }
 
 const props = defineProps<{
-    auth: any; // Definir tipo mais específico se disponível (ex: SharedData['auth'])
+    auth: any;
     contact_id?: number | string | null;
     contact_name?: string | null;
     users: UserSelectItem[];
@@ -81,7 +80,7 @@ const props = defineProps<{
     availablePriorities: Array<{ key: string; label: string }>;
     paymentMethods: string[];
     paymentTypes: Array<{ value: string; label: string }>;
-    errors?: Record<string, string>; // Erros gerais passados pelo controller
+    errors?: Record<string, string>;
 }>();
 
 const RGlobal = (window as any).route;
@@ -109,13 +108,15 @@ const form = useForm<ProcessCreateFormData>({
     title: '',
     description: '',
     contact_id: props.contact_id || null,
-    responsible_id: props.auth.user ? props.auth.user.id : null, // Assumindo que auth.user.id é number
+    responsible_id: props.auth.user ? props.auth.user.id : null,
     workflow: (props.availableWorkflows && props.availableWorkflows.length > 0) ? props.availableWorkflows[0].key : null,
-    stage: null, // MUDADO: de stage_id para stage, inicializado como null
+    stage: null,
     priority: (props.availablePriorities && props.availablePriorities.length > 0) ? props.availablePriorities.find(p => p.key === 'medium')?.key || props.availablePriorities[0].key : null,
     origin: '',
     status: (props.availableStatuses && props.availableStatuses.length > 0) ? props.availableStatuses.find(s => s.label.toLowerCase() === 'aberto')?.key || props.availableStatuses[0].key : null,
     payment: {
+        charge_consultation: false, // Inicializado como false (Não)
+        consultation_fee_amount: null,
         total_amount: null,
         advance_payment_amount: null,
         payment_type: (props.paymentTypes && props.paymentTypes.length > 0) ? props.paymentTypes[0].value : 'a_vista',
@@ -129,32 +130,22 @@ const form = useForm<ProcessCreateFormData>({
 
 onMounted(() => {
     console.log('[onMounted] Props recebidos:', JSON.parse(JSON.stringify(props)));
-    // O watch com immediate:true já terá definido o stage inicial se houver workflow
     console.log('[onMounted] Estado inicial do formulário (após watch immediate):', JSON.parse(JSON.stringify(form)));
 });
 
 const currentStages = computed<StageOption[]>(() => {
-    // console.log('[computed currentStages] form.workflow:', form.workflow);
     if (form.workflow && props.allStages && props.allStages[form.workflow]) {
-        const stages = props.allStages[form.workflow];
-        // console.log('[computed currentStages] Estágios encontrados:', JSON.parse(JSON.stringify(stages)));
-        return stages;
+        return props.allStages[form.workflow];
     }
-    // console.log('[computed currentStages] Nenhum estágio encontrado.');
     return [];
 });
 
-watch(() => form.workflow, (newWorkflow, oldWorkflow) => {
-    // console.log(`[WATCH form.workflow] Mudança de '${oldWorkflow}' para '${newWorkflow}'`);
+watch(() => form.workflow, (newWorkflow) => {
     const stagesForNewWorkflow = newWorkflow && props.allStages && props.allStages[newWorkflow] ? props.allStages[newWorkflow] : [];
-    // console.log('[WATCH form.workflow] Estágios para o novo workflow:', JSON.parse(JSON.stringify(stagesForNewWorkflow)));
-
     if (stagesForNewWorkflow.length > 0) {
-        form.stage = stagesForNewWorkflow[0].key; // key do estágio é number
-        // console.log(`[WATCH form.workflow] form.stage DEFINIDO PARA: ${form.stage} (tipo: ${typeof form.stage})`);
+        form.stage = stagesForNewWorkflow[0].key;
     } else {
         form.stage = null;
-        // console.log('[WATCH form.workflow] form.stage DEFINIDO PARA NULL');
     }
     form.clearErrors('stage');
 }, { immediate: true });
@@ -169,14 +160,16 @@ watch(() => form.payment.payment_type, (newType) => {
     if (newType === 'a_vista') {
         form.payment.number_of_installments = null;
         form.payment.first_installment_due_date = null;
-    } else if (newType === 'parcelado') {
-        if (!(form.payment.advance_payment_amount && parseFloat(String(form.payment.advance_payment_amount)) > 0)) {
-            // Limpa single_payment_date apenas se não houver entrada, pois ele seria para o pagamento à vista
-            // form.payment.single_payment_date = null; // Opcional, já que o campo não será mostrado
-        }
     }
 });
 
+// Watcher para charge_consultation (deve funcionar da mesma forma com Select<boolean>)
+watch(() => form.payment.charge_consultation, (isCharging) => {
+    form.clearErrors('payment.consultation_fee_amount');
+    if (!isCharging) { // Se for false ou null
+        form.payment.consultation_fee_amount = null;
+    }
+});
 
 const amount_to_be_paid_or_installed = computed(() => {
     const total = parseFloat(String(form.payment.total_amount)) || 0;
@@ -195,6 +188,9 @@ const installmentAmount = computed(() => {
     return null;
 });
 
+const pageTitle = computed(() => props.contact_id ? `Novo Caso para ${props.contact_name}` : 'Novo Caso');
+
+
 function submit() {
     const dataToSubmit: ProcessCreateFormData = JSON.parse(JSON.stringify(form.data()));
 
@@ -202,33 +198,57 @@ function submit() {
         dataToSubmit.contact_id = String(dataToSubmit.contact_id);
     }
     if (dataToSubmit.responsible_id !== null && dataToSubmit.responsible_id !== undefined && String(dataToSubmit.responsible_id).trim() !== "") {
-        dataToSubmit.responsible_id = Number(dataToSubmit.responsible_id); // Converter para número se for string
+        dataToSubmit.responsible_id = Number(dataToSubmit.responsible_id);
     } else {
         dataToSubmit.responsible_id = null;
     }
 
-    // Lógica para limpar/ajustar campos de pagamento antes do envio
-    if (dataToSubmit.payment && dataToSubmit.payment.total_amount && parseFloat(String(dataToSubmit.payment.total_amount)) > 0) {
-        const hasAdvancePayment = dataToSubmit.payment.advance_payment_amount && parseFloat(String(dataToSubmit.payment.advance_payment_amount)) > 0;
+    if (dataToSubmit.payment) {
+        if (!dataToSubmit.payment.charge_consultation || !(parseFloat(String(dataToSubmit.payment.consultation_fee_amount)) > 0) ) {
+            dataToSubmit.payment.consultation_fee_amount = null;
+        }
 
-        if (dataToSubmit.payment.payment_type === 'a_vista') {
+        const hasTotalAmount = dataToSubmit.payment.total_amount && parseFloat(String(dataToSubmit.payment.total_amount)) > 0;
+
+        if (hasTotalAmount) {
+            const hasAdvancePayment = dataToSubmit.payment.advance_payment_amount && parseFloat(String(dataToSubmit.payment.advance_payment_amount)) > 0;
+
+            if (dataToSubmit.payment.payment_type === 'a_vista') {
+                dataToSubmit.payment.number_of_installments = null;
+                dataToSubmit.payment.first_installment_due_date = null;
+            } else if (dataToSubmit.payment.payment_type === 'parcelado') {
+                if (!hasAdvancePayment) {
+                    dataToSubmit.payment.single_payment_date = null;
+                }
+            }
+
+            if (!hasAdvancePayment) {
+                dataToSubmit.payment.advance_payment_amount = null;
+            }
+        } else {
+            dataToSubmit.payment.total_amount = null;
+            dataToSubmit.payment.advance_payment_amount = null;
+            dataToSubmit.payment.payment_type = null;
+            dataToSubmit.payment.payment_method = null;
+            dataToSubmit.payment.single_payment_date = null;
             dataToSubmit.payment.number_of_installments = null;
             dataToSubmit.payment.first_installment_due_date = null;
-        } else if (dataToSubmit.payment.payment_type === 'parcelado') {
-            if (!hasAdvancePayment) {
-                dataToSubmit.payment.single_payment_date = null;
-            }
-        }
-
-        if (!hasAdvancePayment) {
-            dataToSubmit.payment.advance_payment_amount = null;
         }
     } else {
-        dataToSubmit.payment = {} as PaymentFormData;
+        dataToSubmit.payment = {
+            charge_consultation: false,
+            consultation_fee_amount: null,
+            total_amount: null,
+            advance_payment_amount: null,
+            payment_type: null,
+            payment_method: null,
+            single_payment_date: null,
+            number_of_installments: null,
+            first_installment_due_date: null,
+            notes: null,
+        } as PaymentFormData;
     }
     
-    // console.log('Dados finais a serem enviados:', dataToSubmit);
-
     form.transform(() => dataToSubmit)
         .post(route('processes.store'), {
             onSuccess: () => {
@@ -247,20 +267,26 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => [
 
 const contactOptions = computed(() => {
     return props.contactsList.map(contact => ({
-        value: contact.id, // Mantém como number se for number
+        value: String(contact.id), // SelectItem value geralmente é string
         label: `${contact.name || contact.business_name || 'Nome não disponível'} (${contact.type === 'physical' ? 'PF' : 'PJ'})`
     }));
 });
 
 const responsibleOptions = computed(() => {
     return props.users.map(user => ({
-        value: user.id, // Mantém como number
+        value: String(user.id), // SelectItem value geralmente é string
         label: user.name
     }));
 });
 
 const priorityOptions = computed(() => props.availablePriorities);
 const statusOptions = computed(() => props.availableStatuses);
+
+// Opções para o Select de "Cobrar Consulta"
+const chargeConsultationOptions = ref([
+    { value: true, label: 'Sim' },
+    { value: false, label: 'Não' },
+]);
 
 </script>
 
@@ -295,12 +321,12 @@ const statusOptions = computed(() => props.availableStatuses);
                                 <SelectContent>
                                     <SelectGroup>
                                         <SelectLabel>Contatos</SelectLabel>
-                                        <SelectItem v-if="props.contact_id && props.contact_name" :value="props.contact_id">
+                                        <SelectItem v-if="props.contact_id && props.contact_name" :value="String(props.contact_id)">
                                             {{ props.contact_name }}
                                         </SelectItem>
                                         <template v-else>
                                             <SelectItem v-for="contact in contactOptions" :key="contact.value"
-                                                :value="contact.value">
+                                                :value="contact.value"> <!-- value já é string por contactOptions -->
                                                 {{ contact.label }}
                                             </SelectItem>
                                         </template>
@@ -327,7 +353,7 @@ const statusOptions = computed(() => props.availableStatuses);
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <Label for="workflow">Workflow <span class="text-red-500">*</span></Label>
-                                <Select v-model="form.workflow">
+                                <Select v-model="form.workflow"> <!-- O value é string (key do workflow) -->
                                     <SelectTrigger id="workflow">
                                         <SelectValue placeholder="Selecione um workflow" />
                                     </SelectTrigger>
@@ -350,7 +376,7 @@ const statusOptions = computed(() => props.availableStatuses);
                             </div>
                             <div>
                                 <Label for="stage">Estágio <span class="text-red-500">*</span></Label>
-                                <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0">
+                                <Select v-model="form.stage" :disabled="!form.workflow || currentStages.length === 0"> <!-- O value é number (key do stage) -->
                                     <SelectTrigger id="stage">
                                         <SelectValue placeholder="Selecione um estágio" />
                                     </SelectTrigger>
@@ -378,7 +404,7 @@ const statusOptions = computed(() => props.availableStatuses);
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <Label for="responsible_id">Responsável</Label>
-                                <Select v-model="form.responsible_id">
+                                <Select v-model="form.responsible_id"> <!-- O value é string (id do user) ou null -->
                                     <SelectTrigger id="responsible_id">
                                         <SelectValue placeholder="Selecione um responsável" />
                                     </SelectTrigger>
@@ -387,7 +413,7 @@ const statusOptions = computed(() => props.availableStatuses);
                                             <SelectLabel>Usuários</SelectLabel>
                                             <SelectItem :value="null">Ninguém (Não atribuído)</SelectItem>
                                             <SelectItem v-for="user in responsibleOptions" :key="user.value"
-                                                :value="user.value">
+                                                :value="user.value"> <!-- value já é string por responsibleOptions -->
                                                 {{ user.label }}
                                             </SelectItem>
                                         </SelectGroup>
@@ -409,7 +435,7 @@ const statusOptions = computed(() => props.availableStatuses);
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <Label for="priority">Prioridade <span class="text-red-500">*</span></Label>
-                                <Select v-model="form.priority">
+                                <Select v-model="form.priority"> <!-- O value é string (key da prioridade) -->
                                     <SelectTrigger id="priority">
                                         <SelectValue placeholder="Selecione a prioridade" />
                                     </SelectTrigger>
@@ -428,7 +454,7 @@ const statusOptions = computed(() => props.availableStatuses);
                             </div>
                             <div>
                                 <Label for="status">Status <span class="text-red-500">*</span></Label>
-                                <Select v-model="form.status">
+                                <Select v-model="form.status"> <!-- O value é string (key do status) -->
                                     <SelectTrigger id="status">
                                         <SelectValue placeholder="Selecione o status" />
                                     </SelectTrigger>
@@ -450,9 +476,45 @@ const statusOptions = computed(() => props.availableStatuses);
                         <div class="pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
                             <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100 mb-6">Detalhes Financeiros</h3>
                             <div class="space-y-6">
+
+                                <!-- Cobrar Consulta Select e Input -->
+                                <div class="space-y-2">
+                                    <Label for="charge_consultation_select">Cobrar Consulta Inicial?</Label>
+                                    <Select v-model="form.payment.charge_consultation"> <!-- Bind para booleano -->
+                                        <SelectTrigger id="charge_consultation_select">
+                                            <SelectValue placeholder="Selecione uma opção" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectGroup>
+                                                <SelectLabel>Opções</SelectLabel>
+                                                <SelectItem v-for="option in chargeConsultationOptions" :key="String(option.value)" :value="option.value">
+                                                    {{ option.label }}
+                                                </SelectItem>
+                                            </SelectGroup>
+                                        </SelectContent>
+                                    </Select>
+                                     <div v-if="form.errors['payment.charge_consultation']" class="text-sm text-red-600 dark:text-red-400">
+                                        {{ form.errors['payment.charge_consultation'] }}
+                                    </div>
+                                </div>
+
+                                <div v-if="form.payment.charge_consultation === true" class="pl-2"> <!-- Verifica explicitamente por true -->
+                                    <Label for="consultation_fee_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Valor da Consulta (R$) <span class="text-red-500">*</span>
+                                    </Label>
+                                    <Input id="consultation_fee_amount" type="number" step="0.01" min="0"
+                                        v-model="form.payment.consultation_fee_amount" class="mt-1 block w-full"
+                                        placeholder="Ex: 150.00" />
+                                    <div v-if="form.errors['payment.consultation_fee_amount']" class="text-sm text-red-600 dark:text-red-400 mt-1">
+                                        {{ form.errors['payment.consultation_fee_amount'] }}
+                                    </div>
+                                </div>
+                                <!-- Fim Cobrar Consulta -->
+
+
                                 <div>
                                     <Label for="payment_total_amount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                        Valor Total do Contrato/Serviço (R$)
+                                        Valor Total do Contrato/Serviço (R$) (Opcional)
                                     </Label>
                                     <Input id="payment_total_amount" type="number" step="0.01" min="0"
                                         v-model="form.payment.total_amount" class="mt-1 block w-full"
@@ -603,15 +665,18 @@ const statusOptions = computed(() => props.availableStatuses);
                                         </div>
                                     </div>
                                 </template>
+                                 <p v-else class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                    Preencha o "Valor Total do Contrato/Serviço" para habilitar opções de pagamento detalhadas.
+                                </p>
                             </div>
                         </div>
 
                         <div class="flex justify-end space-x-3 pt-8">
-                            <Link :href="props.contact_id ? route('contacts.show', props.contact_id) : route('processes.index')">
+                            <Link :href="props.contact_id ? route('contacts.show', String(props.contact_id)) : route('processes.index')">
                                 <Button type="button" variant="outline">Cancelar</Button>
                             </Link>
                             <Button type="submit" :disabled="form.processing">
-                                 <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <svg v-if="form.processing" class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>

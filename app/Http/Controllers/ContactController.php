@@ -85,7 +85,7 @@ class ContactController extends Controller
             'name' => 'required_if:type,physical|nullable|string|max:255',
             'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => ['required', 'string', 'max:20', Rule::unique('contacts', 'cpf_cnpj')->where(fn($query) => $query->whereNull('deleted_at'))],
-            'rg' => ['nullable', 'string', 'max:20', Rule::unique('contacts', 'rg')->ignore($request->id)->where(fn($query) => $query->whereNull('deleted_at'))], // Adicionado ignore para update
+            'rg' => ['nullable', 'string', 'max:20', Rule::unique('contacts', 'rg')->ignore($request->id)->where(fn($query) => $query->whereNull('deleted_at'))],
             'gender' => 'nullable|string|in:male,female,other,prefer_not_to_say',
             'nationality' => 'nullable|string|max:50',
             'marital_status' => 'nullable|string|max:50',
@@ -101,7 +101,7 @@ class ContactController extends Controller
             'state' => 'nullable|string|size:2',
             'complement' => 'nullable|string|max:100',
             'number' => 'nullable|string|max:20',
-            'administrator_id' => 'nullable|exists:contacts,id',
+            'administrator_id' => 'nullable|exists:contacts,id', // Assuming 'contacts' is the table name
             'emails' => 'present|array',
             'emails.*' => 'nullable|email|max:255',
             'phones' => 'present|array',
@@ -133,10 +133,14 @@ class ContactController extends Controller
             ];
 
             if ($data['type'] === 'physical') {
-                $contactData['name'] = $data['name'];
-            } else {
-                $contactData['name'] = $data['name'] ?? $data['business_name'];
-                $contactData['business_name'] = $data['business_name'];
+                $contactData['name'] = !empty($data['name']) ? mb_strtoupper($data['name'], 'UTF-8') : null;
+                // business_name might be null or not applicable for physical, so handle it.
+                $contactData['business_name'] = !empty($data['business_name']) ? mb_strtoupper($data['business_name'], 'UTF-8') : null;
+            } else { // type === 'legal'
+                $contactData['business_name'] = !empty($data['business_name']) ? mb_strtoupper($data['business_name'], 'UTF-8') : null;
+                $resolvedName = $data['name'] ?? $data['business_name']; // Get the name first
+                $contactData['name'] = !empty($resolvedName) ? mb_strtoupper($resolvedName, 'UTF-8') : null;
+
             }
 
             $contact = Contact::create($contactData);
@@ -151,6 +155,7 @@ class ContactController extends Controller
             if (!empty($data['phones'])) {
                 foreach ($data['phones'] as $phone) {
                     if ($phone) {
+                        // Ensure phone numbers are also just digits if that's the intent
                         $contact->phones()->create(['phone' => preg_replace('/\D/', '', $phone)]);
                     }
                 }
@@ -166,7 +171,6 @@ class ContactController extends Controller
             return back()->withInput()->with('error', 'Ocorreu um erro inesperado ao criar o contato.');
         }
     }
-
     public function show(Contact $contact): Response
     {
         $contact->load([
@@ -216,6 +220,8 @@ class ContactController extends Controller
     public function update(Request $request, Contact $contact)
     {
         $data = $request->validate([
+            // 'type' is not expected to change on update, so it's not in validation here.
+            // If type can change, validation and logic would be more complex.
             'name' => 'required_if:type,physical|nullable|string|max:255',
             'business_name' => 'required_if:type,legal|nullable|string|max:255',
             'cpf_cnpj' => ['required', 'string', 'max:20', Rule::unique('contacts', 'cpf_cnpj')->ignore($contact->id)->where(fn($query) => $query->whereNull('deleted_at'))],
@@ -244,32 +250,44 @@ class ContactController extends Controller
 
         DB::beginTransaction();
         try {
-            $contactDataToUpdate = $data;
-            // O tipo não deve ser alterado na edição, então removemos do array de update.
-            // Se precisar mudar o tipo, seria uma lógica mais complexa.
-            // unset($contactDataToUpdate['type']); 
+            // Prepare data for update, removing 'type' as it's generally not changed on update.
+            // If type *can* change, this logic would need to be more sophisticated.
+            $contactDataToUpdate = collect($data)->except('type')->all();
 
             $contactDataToUpdate['cpf_cnpj'] = preg_replace('/\D/', '', $data['cpf_cnpj']);
             $contactDataToUpdate['rg'] = isset($data['rg']) ? preg_replace('/\D/', '', $data['rg']) : null;
             $contactDataToUpdate['zip_code'] = isset($data['zip_code']) ? preg_replace('/\D/', '', $data['zip_code']) : null;
 
+            // Convert names to uppercase while preserving accents <<< MODIFIED SECTION
+            // We use $contact->type to know the existing type of the contact being updated.
             if ($contact->type === 'physical') {
-                $contactDataToUpdate['name'] = $data['name'];
-                $contactDataToUpdate['business_name'] = null;
-                $contactDataToUpdate['business_activity'] = null;
-            } else { // legal
-                $contactDataToUpdate['name'] = $data['name'] ?? $data['business_name'];
-                $contactDataToUpdate['business_name'] = $data['business_name'];
+                $contactDataToUpdate['name'] = !empty($data['name']) ? mb_strtoupper($data['name'], 'UTF-8') : null;
+                // For physical person, business_name might be changed or cleared.
+                $contactDataToUpdate['business_name'] = !empty($data['business_name']) ? mb_strtoupper($data['business_name'], 'UTF-8') : null;
+                $contactDataToUpdate['business_activity'] = $data['business_activity'] ?? null; // Keep this as is or clear if needed
+            } else { // type === 'legal'
+                $contactDataToUpdate['business_name'] = !empty($data['business_name']) ? mb_strtoupper($data['business_name'], 'UTF-8') : null;
+                // 'name' for legal entity (contact person)
+                $resolvedName = $data['name'] ?? $data['business_name'];
+                $contactDataToUpdate['name'] = !empty($resolvedName) ? mb_strtoupper($resolvedName, 'UTF-8') : null;
+
+                // Fields specific to 'physical' that should be nulled out if a contact *were* to change to 'legal'
+                // However, since type change isn't handled, we primarily rely on form inputs.
+                // If 'rg', 'gender' etc. are not submitted for a legal person, they'll become null if $data['key'] is not set.
+                // It's safer to explicitly nullify them based on type if that's the business rule.
+                // For now, respecting the original logic's approach of nulling out based on type.
                 $contactDataToUpdate['rg'] = null;
                 $contactDataToUpdate['gender'] = null;
-                // Manter outros campos como date_of_birth, marital_status, profession nulos para PJ
-                 $contactDataToUpdate['date_of_birth'] = null;
-                 $contactDataToUpdate['marital_status'] = null;
-                 $contactDataToUpdate['profession'] = null;
+                $contactDataToUpdate['date_of_birth'] = null;
+                $contactDataToUpdate['marital_status'] = null;
+                $contactDataToUpdate['profession'] = null;
             }
+            // <<< END OF MODIFIED SECTION
+
 
             $contact->update($contactDataToUpdate);
 
+            // Sync emails: delete existing and re-create
             $contact->emails()->delete();
             if (!empty($data['emails'])) {
                 foreach ($data['emails'] as $email) {
@@ -278,6 +296,8 @@ class ContactController extends Controller
                     }
                 }
             }
+
+            // Sync phones: delete existing and re-create
             $contact->phones()->delete();
             if (!empty($data['phones'])) {
                 foreach ($data['phones'] as $phone) {
@@ -286,6 +306,7 @@ class ContactController extends Controller
                     }
                 }
             }
+
             DB::commit();
             return redirect()->route('contacts.show', $contact->id)->with('success', 'Contato atualizado com sucesso.');
         } catch (\Illuminate\Validation\ValidationException $e) {
