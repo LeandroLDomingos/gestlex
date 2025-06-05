@@ -149,7 +149,6 @@ function submitForm() {
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Painel', href: routeHelper('dashboard') },
     { title: 'Financeiro', href: routeHelper('financial-transactions.index') },
     { title: `Editar Transação #${props.transaction.id.toString().substring(0, 8)}...` },
 ];
@@ -288,7 +287,7 @@ const currentInstallmentNumber = computed(() => {
                                 <InputError :message="form.errors.status" class="mt-1" />
                             </div>
 
-                             <div>
+                            <div hidden>
                                 <Label for="transaction_nature">Natureza da Transação</Label>
                                 <Select v-model="form.transaction_nature" :disabled="isInstallment">
                                     <SelectTrigger id="transaction_nature" class="mt-1">

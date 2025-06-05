@@ -55,6 +55,8 @@ return new class extends Migration
             // Timestamps padrão do Laravel (created_at e updated_at)
             $table->timestamps();
 
+            $table->softDeletes();
+
             // --- DEFINIÇÃO DA RESTRIÇÃO DE CHAVE ESTRANGEIRA ---
             // A restrição é definida após a criação da coluna
             // Referencia a coluna 'id' na mesma tabela 'contacts'

@@ -135,7 +135,7 @@ class PermissionsRolesAdminSeeder extends Seeder
         
         // Admin User
         $adminUser = User::firstOrCreate(
-            ['email' => 'admin@fernandalorenadvogados.com.br'],
+            ['email' => 'admin@fernandalorenadvocacia.com.br'],
             [
                 'name' => 'Admin Fernanda Lorena',
                 'password' => Hash::make('password'), // MUDE ESTA SENHA
@@ -147,7 +147,7 @@ class PermissionsRolesAdminSeeder extends Seeder
 
         // Gerente User
         $managerUser = User::firstOrCreate(
-            ['email' => 'gerente@fernandalorenadvogados.com.br'],
+            ['email' => 'gerente@fernandalorenadvocacia.com.br'],
             [
                 'name' => 'Gerente Equipe',
                 'password' => Hash::make('password'), // MUDE ESTA SENHA
@@ -159,7 +159,7 @@ class PermissionsRolesAdminSeeder extends Seeder
         
         // Convidado User
         $guestUser = User::firstOrCreate(
-            ['email' => 'convidado@fernandalorenadvogados.com.br'],
+            ['email' => 'convidado@fernandalorenadvocacia.com.br'],
             [
                 'name' => 'Usuário Convidado',
                 'password' => Hash::make('password'), // MUDE ESTA SENHA

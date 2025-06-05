@@ -85,7 +85,7 @@ class Process extends Model
      */
     public function tasks(): HasMany
     {
-        return $this->hasMany(Task::class, 'process_id', 'id')->orderBy('due_datetime', 'asc')->orderBy('created_at', 'asc');
+        return $this->hasMany(Task::class, 'process_id', 'id')->orderBy('created_at', 'asc');
     }
 
     // Constantes para Workflows

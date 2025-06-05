@@ -292,7 +292,6 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
 };
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
-    { title: 'Painel', href: routeHelper('dashboard') },
     { title: 'Casos', href: routeHelper('processes.index') },
     { title: props.process.workflow_label || props.process.workflow, href: routeHelper('processes.index', { workflow: props.process.workflow }) },
     { title: props.process.title || 'Detalhes do Caso', href: routeHelper('processes.show', props.process.id) },
