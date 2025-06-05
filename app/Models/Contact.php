@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids; // Se Contact usa UUIDs
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo; // Para administrator_id
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Contact extends Model
 {
@@ -128,4 +129,33 @@ class Contact extends Model
     }
 
     protected $appends = ['gender_label', 'marital_status_label'];
+
+    protected function nationalityFullName(): Attribute
+    {
+        return Attribute::make(
+            get: function ($value, $attributes) {
+                // Pega o código do país (ex: 'BR') da coluna 'nationality'
+                $countryCode = $attributes['nationality'] ?? null;
+                
+                // Pega o gênero da coluna 'gender' para ajustar o texto
+                $gender = $attributes['gender'] ?? 'male'; // Assume 'male' se não houver gênero
+
+                if ($countryCode === 'BR') {
+                    // Retorna a palavra correta baseada no gênero
+                    return $gender === 'female' ? 'brasileira' : 'brasileiro';
+                }
+
+                // --- Lógica para outros países (opcional) ---
+                // Se você tiver outros países, pode adicionar a lógica aqui.
+                // Por enquanto, se não for 'BR', retornamos o próprio código ou uma mensagem padrão.
+                if ($countryCode) {
+                    // Aqui você poderia usar uma biblioteca para converter o código para o nome completo.
+                    // Ex: return \Countries::find($countryCode)->getNationality();
+                    return $countryCode; 
+                }
+
+                return 'nacionalidade não informada';
+            },
+        );
+    }
 }

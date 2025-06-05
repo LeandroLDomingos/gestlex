@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DocumentoController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FinancialTransactionController;
 use App\Http\Controllers\ProcessController;
@@ -96,6 +97,12 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
 
     Route::put('/admin/roles/{role}/permissions', [RoleController::class, 'syncRolePermissions'])
         ->name('admin.roles.permissions.sync');
+
+    Route::get('/processos/{processo}/documentos/gerar/procuracao', [DocumentoController::class, 'gerarProcuracaoPdf'])
+        ->name('processes.documents.generate.procuracao');
+
+    Route::get('/processos/{processo}/documentos/gerar/aposentadoria', [DocumentoController::class, 'gerarAposentadoriaPdf'])
+        ->name('processes.documents.generate.aposentadoria');
 });
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)
