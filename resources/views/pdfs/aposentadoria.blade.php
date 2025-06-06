@@ -146,6 +146,38 @@
         .page-break {
             page-break-before: always;
         }
+
+        /* ESTILOS PARA A SEÇÃO DE TESTEMUNHAS */
+        .testemunhas-section {
+            margin-top: 40px;
+            /* Espaçamento acima da seção de testemunhas */
+            font-family: 'Times New Roman', Times, serif;
+            /* Mantém a fonte do corpo do texto */
+            font-size: 9pt;
+            /* Tamanho da fonte como na imagem de referência */
+            text-align: left;
+            /* Alinha o texto "Testemunhas:" à esquerda */
+        }
+
+        .testemunhas-titulo {
+            margin-bottom: 15px;
+            /* Espaço abaixo do título "Testemunhas:" */
+            font-weight: bold;
+        }
+
+        .testemunha {
+            margin-bottom: 10px;
+            /* Espaço entre as linhas de cada testemunha */
+        }
+
+        .testemunha-linha {
+            margin-bottom: 8px;
+            /* Pequeno espaço abaixo de cada linha de testemunha, se necessário */
+            line-height: 1.4;
+            /* Ajuste para o espaçamento vertical da linha */
+            white-space: nowrap;
+            /* Evita que a linha quebre se for muito longa */
+        }
     </style>
 </head>
 
@@ -210,7 +242,7 @@
         <br>
         <br>
         <p>
-            <strong>OUTORGANTES:
+            Pelo presente instrumento particular, que entre si fazem, de um lado como <strong>CLIENTE/CONTRATANTE,
                 {{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'Nome do Outorgante não informado')) }}</strong>,
             @if($outorgante->type === 'physical')
                 {{-- ALTERAÇÃO APLICADA AQUI --}}
@@ -226,71 +258,102 @@
             {{ $outorgante->number ?? 'N/A' }}{{ $outorgante->complement ? ', ' . $outorgante->complement : '' }}
             {{ $outorgante->neighborhood ?? 'Bairro não informado' }} –
             {{ $outorgante->city ?? 'Cidade não informada' }} – {{ $outorgante->state ?? 'Estado não informado' }}, CEP
-            {{ $outorgante->zip_code ?? 'CEP não informado' }}.
+            {{ $outorgante->zip_code ?? 'CEP não informado' }}, e, de outro lado, como ADVOGADA, assim doravante
+            indicada, Dr.ª FERNANDA LÓREN FERREIRA SANTOS, brasileira, casada, Advogada regularmente inscrita na Ordem
+            dos Advogados do Brasil sob o nº 187.526, estabelecida profissionalmente á Rua Coronel Durães, nº 170, Sala
+            09, Bela Vista, (31) 98980-3313, CEP 33.239-206, Lagoa Santa/MG, ajustam entre si, com fulcro no artigo 22
+            da Lei nº 8.906/94, mediante as seguintes cláusulas e condições
+
+        </p>
+        <p>
+            <strong>Cláusula Primeira</strong> - A Advogada contratada compromete-se, em cumprimento ao mandato recebido
+            a <strong>requerer administrativamente Aposentadoria e ajuste de pendências no CNIS, junto ao INSS e
+                solicitar Certidão de Contagem de Tempo e PPP junto a Prefeitura Municipal de Lagoa.</strong>
+        </p>
+        <p>
+            <strong>Cláusula Segunda</strong> – O CONTRATANTE reconhece já haver recebido a orientação preventiva
+            comportamental e jurídica para a consecução dos serviços, se compromete a fornecer à ADVOGADA CONTRATADA os
+            documentos e meios necessários à comprovação processual do seu pretendido direito, bem como, pagará as
+            despesas extrajudiciais que decorrerem da causa, caso haja, nada havendo adiantado para esse fim.
+        </p>
+        <p>
+            <strong>Cláusula Terceira</strong> – Em remuneração pelos serviços profissionais ora contratados serão
+            devidos honorários no importe de R$ 2.000,00 (Dois mil reais), divido em 5 parcelas de R$ 400,00
+            (Quatrocentos reais), sendo a primeira parcela com vencimento em 06 de junho de 2025 e as demais no mesmo
+            dia nos meses subsequentes.
+        </p>
+        <p>
+            Serão devidos ainda, o importe de 30% (trinta por cento) dos valores que vier a receber a título de
+            atrasados, além do correspondente a 02 (dois) salários de benefício.
+        </p>
+        <p>
+            Os honorários deverão ser depositados na Conta Corrente Agência 3180, Conta 02006009-5, Banco 033,
+            Santander, titular Fernanda Lóren Ferreira Santos. Ou mediante PIX prev.fernandaloren@gmail.com.
         </p>
 
         <p>
-            Pelo presente Instrumento de Mandato, nomeio e constituo minha bastante procuradora <strong>Fernanda Lóren
-                Ferreira Santos</strong>, brasileira, casada, Advogada regularmente inscrita na Ordem dos Advogados do
-            Brasil sob o nº 187.526 (151ª Subseção – Seção Minas Gerais), estabelecida profissionalmente na Rua Coronel
-            Durães, nº 170, Sala 09, Bela Vista, Lagoa Santa/MG, CEP 33.239-206, com poderes para o Foro em Geral, para
-            defender meus interesses perante repartições públicas Federais, Estaduais e Municipais, órgãos da
-            administração pública direta e indireta, qualquer Juízo ou Tribunal do país, em qualquer Instância, em que
-            eu for autor, réu, assistente, oponente, reclamante, reclamado, litisconsorte ou chamado à autoria podendo o
-            dito procurador, para o bom e fiel desempenho deste Mandato receber crédito, desistir, transigir, receber
-            citação inicial, reconhecer a procedência do pedido, confessar, firmar termos, acordos, estabelecer ritos de
-            arrolamentos, impugnar créditos, oferecer lances e arrematar, habilitar, recorrer, prestar compromisso de
-            inventariante, levantar ou receber RPV e ALVARÁS, pedir a justiça gratuita e assinar declaração de
-            hipossuficiência econômica, em conformidade com a norma do art. 105 da Lei 13.105/2015, podendo ainda
-            substabelecer com ou sem reservas de iguais poderes, do qual dou tudo por bom, firme e valioso,
-            especificamente para a presente.
-
+            <strong>Parágrafo Primeiro</strong> – A respectiva quitação será dada quando da emissão do recibo.
         </p>
 
-        <p style="text-align: right;">
+        <p>
+            <strong>Cláusula Quarta </strong>– Outras medidas extrajudiciais ou judiciais necessárias, incidentais ou
+            não, diretas ou indiretas, decorrentes da causa ora contratada, devem ter novos honorários estimados com a
+            anuência da CONTRATANTE.
+        </p>
+
+        <p>
+            <strong>Cláusula Quinta</strong> - Considerar-se-ão vencidos e imediatamente exigíveis os honorários ora
+            contratados – como se o cliente fosse vencedor – no caso de O CONTRATANTE vir a revogar ou cassar o mandato
+            outorgado, optar por não prosseguir com o procedimento por motivos pessoais ou a exigir o substabelecimento
+            sem reservas, sem que a ADVOGADA CONTRATADA tenha, para isso, dado causa.
+        </p>
+
+        <p>
+            <strong>Cláusula Sexta</strong> - A atuação profissional da ADVOGADA CONTRATADA ficará restrita até grau
+            recursal. A indicação de advogados para acompanhamento de recursos nos Tribunais Superiores, bem como para
+            acompanhamento de eventuais cartas precatórias será da CONTRATANTE, caso este prefira os serviços de outros
+            profissionais da sua confiança pessoal.
+        </p>
+
+        <p>
+            <strong>Cláusula Sétima</strong> - Elegem as partes o foro da Comarca de Lagoa Santa, para dirimir
+            controvérsias que possam surgir do presente contrato.
+        </p>
+
+        <p>
+            E por estarem assim justos e contratados, assinam o presente em duas vias de igual forma e teor, na presença
+            de duas testemunhas, para que possa produzir todos os seus efeitos de direito.
+        </p>
+
+        <p style="text-align: center;">
             {{ $local_emissao ?? 'Local não informado' }}, {{ $data_emissao ?? 'Data não informada' }}.
         </p>
+
+
+        <br>
 
         <div class="assinatura">
             <span class="assinatura-linha"></span>
             <strong>{{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'ASSINATURA OUTORGANTE')) }}</strong>
         </div>
 
-        <div class="page-break"></div>
-
-        <br>
-        <h3>Declaração de Necessitado para Fins Judiciais</h3>
-        <br>
-        <br>
-        <p>
-            <strong>{{ strtoupper($outorgante->name ?? 'Nome não informado') }}</strong>,
-            {{-- ALTERAÇÃO APLICADA AQUI --}}
-            {{ $outorgante->nationality_full_name }},
-            {{ $outorgante->marital_status ?? 'Estado civil não informado' }},
-            {{ $outorgante->profession ?? 'Profissão não informada' }}, portador do registro geral
-            {{ $outorgante->rg ?? 'RG não informado' }} e CPF {{ $outorgante->cpf_cnpj ?? 'CPF não informado' }},
-            residente e domiciliado a {{ $outorgante->address ?? 'Endereço não informado' }},
-            {{ $outorgante->number ?? 'N/A' }}{{ $outorgante->complement ? ', ' . $outorgante->complement : '' }}
-            {{ $outorgante->neighborhood ?? 'Bairro não informado' }} –
-            {{ $outorgante->city ?? 'Cidade não informada' }} – {{ $outorgante->state ?? 'Estado não informado' }}, CEP
-            {{ $outorgante->zip_code ?? 'CEP não informado' }}, nos termos da Lei 1.060 de 05 de fevereiro de 1950 e
-            suas modificações subseqüentes, entre estas a Lei 7.115 de 29 de agosto de 1983 e Lei 7.510 de 04 de julho
-            de 1986, sujeitando-se às sanções da esfera administrativa, cível e criminal previstas na legislação da
-            República Federativa do Brasil, DECLARA ser pobre na acepção jurídica da palavra, não possuindo, portanto,
-            condições, meios ou recursos de arcar com as despesas processuais, honorários advocatícios e demais ônus
-            judiciais inerentes ao presente feito, sem prejuízo do sustento próprio e de seus familiares. É a expressão
-            da verdade.
-        </p>
-
-        <p class="no-indent">É a expressão da verdade.</p>
-
-        <p class="no-indent" style="text-align: right;">
-            {{ $local_emissao ?? 'Local não informado' }}, {{ $data_emissao ?? 'Data não informada' }}.
-        </p>
-
         <div class="assinatura">
             <span class="assinatura-linha"></span>
-            <strong>{{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'ASSINATURA DECLARANTE')) }}</strong>
+            Dr.ª <strong>FERNANDA LÓREN FERREIRA SANTOS</strong>
+        </div>
+
+        <div class="assinatura">
+            <p class="no-indent testemunhas-titulo" style="text-align: left; padding-left: 80px;"><strong>Testemunhas:</strong></p>
+
+            <div class="testemunha">
+                <p class="no-indent testemunha-linha">1. _________________________________________________________
+                    R.G.:                           </p>
+            </div>
+
+            <div class="testemunha">
+                <p class="no-indent testemunha-linha">2. _________________________________________________________
+                    R.G.:                           </p>
+            </div>
         </div>
     </main>
 </body>
