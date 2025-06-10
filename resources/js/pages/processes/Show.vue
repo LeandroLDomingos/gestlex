@@ -693,7 +693,7 @@ const contractTypes = ref<ContractOption[]>([
         id: 'aposentadoria',
         label: 'Contrato de Aposentadoria',
         action: (process) => {
-            const url = routeHelper('processes.documents.generate.aposentadoria', { processo: process.id });
+            const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
             // Abre a URL em uma nova aba. O navegador irá lidar com a resposta (o PDF).
             window.open(url, '_blank');
         }

@@ -2,14 +2,14 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use App\Enums\PaymentType; // Seu Enum de tipos de pagamento
-use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Enums\PaymentType;
 use App\Enums\TransactionNature;
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProcessPayment extends Model
 {
@@ -20,7 +20,7 @@ class ProcessPayment extends Model
     public const STATUS_PAID = 'paid';
     public const STATUS_FAILED = 'failed';
     public const STATUS_REFUNDED = 'refunded';
-    public const STATUS_OVERDUE = 'overdue'; // <<< CONSTANTE ADICIONADA
+    public const STATUS_OVERDUE = 'overdue';
 
     // Mapeamento de status para rótulos em Português
     public static array $statuses = [
@@ -28,7 +28,7 @@ class ProcessPayment extends Model
         self::STATUS_PAID => 'Pago',
         self::STATUS_FAILED => 'Falhou',
         self::STATUS_REFUNDED => 'Reembolsado',
-        self::STATUS_OVERDUE => 'Vencido', // <<< RÓTULO ADICIONADO
+        self::STATUS_OVERDUE => 'Vencido',
     ];
 
     protected $fillable = [
@@ -60,13 +60,11 @@ class ProcessPayment extends Model
         'number_of_installments' => 'integer',
         'status' => 'string',
         'transaction_nature' => 'string',
-        'transaction_group_id' => 'string', 
+        'transaction_group_id' => 'string',
     ];
 
     /**
      * Get the status label.
-     *
-     * @return \Illuminate\Database\Eloquent\Casts\Attribute
      */
     protected function statusLabel(): Attribute
     {
@@ -77,8 +75,6 @@ class ProcessPayment extends Model
 
     /**
      * Get all status options for frontend select/display.
-     *
-     * @return array
      */
     public static function getStatusesForFrontend(): array
     {
@@ -106,12 +102,6 @@ class ProcessPayment extends Model
         return $query->where('transaction_nature', TransactionNature::INCOME->value);
     }
 
-    /**
-     * Scope a query to only include expense transactions.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
-     */
     public function scopeExpense($query)
     {
         return $query->where('transaction_nature', TransactionNature::EXPENSE->value);

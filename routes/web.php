@@ -98,12 +98,25 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
     Route::put('/admin/roles/{role}/permissions', [RoleController::class, 'syncRolePermissions'])
         ->name('admin.roles.permissions.sync');
 
-    Route::get('/processos/{processo}/documentos/gerar/procuracao', [DocumentoController::class, 'gerarProcuracaoPdf'])
-        ->name('processes.documents.generate.procuracao');
+    // Grupo de Rotas para Geração de Documentos (MODIFICADO)
+    Route::prefix('processos/{processo}/documentos')->name('processes.documents.')->group(function () {
+        // Rotas para Procuração (mantidas como GET por enquanto)
+        Route::get('/gerar/procuracao', [DocumentoController::class, 'gerarProcuracaoPdf'])
+            ->name('generate.procuracao');
 
-    Route::get('/processos/{processo}/documentos/gerar/aposentadoria', [DocumentoController::class, 'gerarAposentadoriaPdf'])
-        ->name('processes.documents.generate.aposentadoria');
+        // NOVAS ROTAS PARA APOSENTADORIA
+        // Rota para MOSTRAR o formulário de preenchimento
+        Route::get('/gerar/aposentadoria/formulario', [DocumentoController::class, 'showAposentadoriaForm'])
+            ->name('show.aposentadoria.form');
+
+        // Rota para PROCESSAR o formulário e GERAR o PDF
+        Route::post('/gerar/aposentadoria', [DocumentoController::class, 'gerarAposentadoriaPdf'])
+            ->name('generate.aposentadoria');
+    });
 });
+
+
+
 
 // Rotas de Autenticação (geralmente já incluídas pelo Breeze/Jetstream)
 require __DIR__ . '/auth.php';
