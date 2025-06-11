@@ -55,7 +55,7 @@ class ContactController extends Controller
             });
 
         if (in_array($sortBy, ['name', 'business_name', 'type'])) {
-            $contactsQuery->orderByRaw("LOWER(CAST({$sortBy} AS TEXT)) {$sortDirection}");
+            $contactsQuery->orderByRaw("LOWER(CAST(`{$sortBy}` AS CHAR)) {$sortDirection}");
         } else {
             $contactsQuery->orderBy($sortBy, $sortDirection);
         }

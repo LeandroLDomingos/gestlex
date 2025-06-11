@@ -52,7 +52,7 @@
         header {
             position: fixed;
             /* 'top' deve ser o negativo da margem superior da página */
-            top: -400px;
+            top: -410px;
             left: 0px;
             right: 0px;
             /* 'height' deve ser a altura desejada para a imagem do cabeçalho */
@@ -247,7 +247,7 @@
             @if($outorgante->type === 'physical')
                 {{-- ALTERAÇÃO APLICADA AQUI --}}
                 {{ $outorgante->nationality_full_name }},
-                {{ $outorgante->marital_status ?? 'Estado civil não informado' }},
+                {{ $outorgante->marital_status_label ?? 'Estado civil não informado' }},
                 {{ $outorgante->profession ?? 'Profissão não informada' }}, portador do registro geral
                 {{ $outorgante->rg ?? 'RG não informado' }} e CPF {{ $outorgante->cpf_cnpj ?? 'CPF não informado' }},
             @else
