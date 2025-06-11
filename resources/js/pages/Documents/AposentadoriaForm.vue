@@ -22,7 +22,7 @@ const props = defineProps({
 // Usamos um objeto reativo simples para os dados do formulário,
 // em vez do useForm do Inertia para esta submissão.
 const form = reactive({
-    clausula_1: 'A Advogada contratada compromete-se, em cumprimento ao mandato recebido a requerer administrativamente Aposentadoria e ajuste de pendências no CNIS, junto ao INSS e solicitar Certidão de Contagem de Tempo e PPP junto a Prefeitura Municipal de Lagoa.',
+    clausula_1: 'A Advogada contratada compromete-se, em cumprimento ao mandato recebido a requerer administrativamente Aposentadoria e ajuste de pendências no CNIS, junto ao INSS e solicitar Certidão de Contagem de Tempo e PPP junto a Prefeitura Municipal de Lagoa Santa.',
     clausula_2: 'O CONTRATANTE reconhece já haver recebido a orientação preventiva comportamental e jurídica para a consecução dos serviços, se compromete a fornecer à ADVOGADA CONTRATADA os documentos e meios necessários à comprovação processual do seu pretendido direito, bem como, pagará as despesas extrajudiciais que decorrerem da causa, caso haja, nada havendo adiantado para esse fim.',
     clausula_3: props.clausulaPagamento,
     paragrafo_primeiro_clausula_3: 'A respectiva quitação será dada quando da emissão do recibo.',

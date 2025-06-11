@@ -98,23 +98,31 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
     Route::put('/admin/roles/{role}/permissions', [RoleController::class, 'syncRolePermissions'])
         ->name('admin.roles.permissions.sync');
 
-    // Grupo de Rotas para Geração de Documentos (MODIFICADO)
+    // --- GRUPO DE ROTAS PARA DOCUMENTOS (VERSÃO FINAL) ---
     Route::prefix('processos/{processo}/documentos')->name('processes.documents.')->group(function () {
 
-        Route::get('/processos/{processo}/procuracao/editar', [DocumentoController::class, 'editarProcuracao'])
-            ->name('processos.procuracao.form');
-
-        Route::post('/processos/{processo}/procuracao/gerar', [DocumentoController::class, 'gerarProcuracaoPdf'])
-            ->name('processos.procuracao.gerar');
-
-        // NOVAS ROTAS PARA APOSENTADORIA
-        // Rota para MOSTRAR o formulário de preenchimento
-        Route::get('/gerar/aposentadoria/formulario', [DocumentoController::class, 'showAposentadoriaForm'])
+        // --- Rotas para Contrato de Aposentadoria ---
+        // Rota GET para mostrar a página do formulário
+        Route::get('/aposentadoria/formulario', [DocumentoController::class, 'showAposentadoriaForm'])
             ->name('show.aposentadoria.form');
 
-        // Rota para PROCESSAR o formulário e GERAR o PDF
-        Route::post('/gerar/aposentadoria', [DocumentoController::class, 'gerarAposentadoriaPdf'])
+        // Rota POST para receber os dados do formulário e gerar o PDF
+        Route::post('/aposentadoria/gerar', [DocumentoController::class, 'gerarAposentadoriaPdf'])
             ->name('generate.aposentadoria');
+
+        // --- Rotas para Procuração ---
+        // Rota GET para mostrar a página do formulário
+        Route::get('/procuracao/formulario', [DocumentoController::class, 'showProcuracaoForm'])
+            ->name('show.procuracao.form');
+
+        // Rota POST para receber os dados do formulário e gerar o PDF
+        Route::post('/procuracao/gerar', [DocumentoController::class, 'gerarProcuracaoPdf'])
+            ->name('generate.procuracao');
+
+        Route::get('/declaracao/formulario', [DocumentoController::class, 'showDeclaracaoNecessitadoForm'])
+            ->name('show.declaracao.form');
+        Route::post('/declaracao/gerar', [DocumentoController::class, 'gerarDeclaracaoNecessitadoPdf'])
+            ->name('generate.declaracao');
     });
 });
 

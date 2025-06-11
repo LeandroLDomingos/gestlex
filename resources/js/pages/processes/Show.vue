@@ -686,8 +686,16 @@ const contractTypes = ref<ContractOption[]>([
         id: 'procuracao',
         label: 'Procuração',
         action: (process) => {
-            const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
-            window.open(url, '_blank');
+            const url = routeHelper('processes.documents.show.procuracao.form', { processo: process.id });
+            window.open(url, '_self');
+        }
+    },
+    {
+        id: 'declaracao',
+        label: 'Declaração de Hipossuficiência',
+        action: (process) => {
+            const url = routeHelper('processes.documents.show.declaracao.form', { processo: process.id });
+            window.open(url, '_self');
         }
     },
     {
@@ -695,7 +703,7 @@ const contractTypes = ref<ContractOption[]>([
         label: 'Contrato de Aposentadoria',
         action: (process) => {
             const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
-            window.open(url, '_blank');
+            window.open(url, '_self');
         }
     },
 ]);

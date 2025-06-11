@@ -46,19 +46,6 @@
             text-align: center;
         }
 
-        .titulo-procuracao {
-            text-align: center;
-            font-family: 'Cambria', Times, serif;
-            margin-bottom: 40px;
-            line-height: 1.2; /* Controla o espaço entre as linhas do título */
-        }
-        .titulo-procuracao h3 {
-            font-size: 12pt;
-            margin: 0;
-            padding: 0;
-            text-transform: uppercase;
-        }
-
         .header-image {
             width: 185%; /* SEU VALOR ORIGINAL MANTIDO */
             height: 310%; /* SEU VALOR ORIGINAL MANTIDO */
@@ -131,28 +118,18 @@
     </footer>
 
     <main>
-        <div class="titulo-procuracao">
-            <h3>I n s t r u m e n t o d e M a n d a t o</h3>
-            <h3>A d J u d i c i a E t E x t r a</h3>
-        </div>
-            
-        <p>
-            <strong>OUTORGANTE:</strong> {!! nl2br(e($outorgante_qualificacao)) !!}
-        </p>
+    <h3><strong>DECLARAÇÃO DE NECESSITADO PARA FINS JUDICIAIS</strong></h3>
 
+    <p>{!! nl2br(e($texto_declaracao)) !!}</p>
 
-        <p>
-             {!! nl2br(e($poderes)) !!}
-        </p>
+    <p style="text-align: center; text-indent: 0; margin-top: 50px;">
+        {{ $local_emissao }}, {{ $data_emissao }}.
+    </p>
 
-        <p style="text-align: center; margin-top: 40px;">
-            {{ $local_emissao }}, {{ $data_emissao }}.
-        </p>
-
-        <div class="assinatura">
-            <span class="assinatura-linha"></span>
-            <strong>{{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'ASSINATURA OUTORGANTE')) }}</strong>
-        </div>
+    <div class="assinatura">
+        <span class="assinatura-linha"></span>
+        <strong>{{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'ASSINATURA')) }}</strong>
+    </div>
     </main>
 </body>
 </html>
