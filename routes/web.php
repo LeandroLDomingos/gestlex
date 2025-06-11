@@ -100,9 +100,12 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
 
     // Grupo de Rotas para Geração de Documentos (MODIFICADO)
     Route::prefix('processos/{processo}/documentos')->name('processes.documents.')->group(function () {
-        // Rotas para Procuração (mantidas como GET por enquanto)
-        Route::get('/gerar/procuracao', [DocumentoController::class, 'gerarProcuracaoPdf'])
-            ->name('generate.procuracao');
+
+        Route::get('/processos/{processo}/procuracao/editar', [DocumentoController::class, 'editarProcuracao'])
+            ->name('processos.procuracao.form');
+
+        Route::post('/processos/{processo}/procuracao/gerar', [DocumentoController::class, 'gerarProcuracaoPdf'])
+            ->name('processos.procuracao.gerar');
 
         // NOVAS ROTAS PARA APOSENTADORIA
         // Rota para MOSTRAR o formulário de preenchimento

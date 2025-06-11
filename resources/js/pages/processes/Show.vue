@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3';
+import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -9,8 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-// Checkbox não está sendo usado diretamente neste arquivo após as últimas modificações
-// import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogClose,
@@ -38,7 +36,7 @@ import {
     CalendarDays, AlertTriangle, CheckCircle, Zap, MoreVertical, Archive, FileText, ChevronDownIcon, ArchiveRestore, Download, UploadCloud, ListChecks, Edit3, HandCoins, Edit2
 } from 'lucide-vue-next';
 
-import type { ProcessAnnotation, ProcessTask, ProcessDocument as ProcessDocumentType, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process'; // Renomeado ProcessDocument para evitar conflito com nome do componente
+import type { ProcessAnnotation, ProcessTask, ProcessDocument as ProcessDocumentType, ProcessHistoryEntry, BreadcrumbItem, UserReference } from '@/types/process';
 
 // Interface para os dados de um pagamento individual
 interface PaymentData {
@@ -83,15 +81,14 @@ interface EditPaymentFormData {
     interest_amount: number | string | null;
 }
 
-// <<< MODIFICADO: Garante que ProcessDocument seja ProcessDocumentType
 interface ProcessDetails extends Omit<import('@/types/process').Process, 'negotiated_value' | 'payments'> {
     archived_at?: string | null;
     documents?: ProcessDocumentType[];
     history_entries?: ProcessHistoryEntry[];
     tasks?: ProcessTask[];
     payments?: PaymentData[];
-    contact?: { id: number | string; name?: string | null; business_name?: string | null; }; // Adicionado para info do contato
-    responsible?: UserReference | null; // Adicionado para info do responsável
+    contact?: { id: number | string; name?: string | null; business_name?: string | null; };
+    responsible?: UserReference | null;
 }
 
 interface SelectOption {
@@ -103,7 +100,6 @@ interface StageOption {
     label: string;
 }
 
-// <<< ADICIONADO: Interface para opções de contrato
 interface ContractOption {
     id: string;
     label: string;
@@ -138,7 +134,7 @@ const showUploadProcessDocumentDialog = ref(false);
 const processDocumentForm = useForm<{ file: File | null; description: string; }>({ file: null, description: '' });
 const processDocumentFileInputRef = ref<HTMLInputElement | null>(null);
 const showDeleteProcessDocumentDialog = ref(false);
-const processDocumentToDelete = ref<ProcessDocumentType | null>(null); // <<< MODIFICADO: Tipo corrigido
+const processDocumentToDelete = ref<ProcessDocumentType | null>(null);
 const processDocumentDeleteForm = useForm({});
 
 const showTaskDialog = ref(false);
@@ -187,6 +183,13 @@ const editPaymentForm = useForm<EditPaymentFormData>({
     status: null,
     interest_amount: null,
 });
+
+const expandedNotes = ref<Record<string, boolean>>({});
+const isNoteInDialogExpanded = ref(false);
+
+function toggleNote(paymentId: string | number) {
+    expandedNotes.value[String(paymentId)] = !expandedNotes.value[String(paymentId)];
+}
 
 const showInterestFieldForEditPayment = computed(() => {
     if (editingPayment.value && editPaymentForm.status === 'paid' && editPaymentForm.payment_date) {
@@ -303,11 +306,11 @@ const routeHelper = (name?: string, params?: any, absolute?: boolean): string =>
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => [
     { title: 'Casos', href: routeHelper('processes.index') },
-    { title: props.process.workflow_label || props.process.workflow || 'Workflow', href: routeHelper('processes.index', { workflow: props.process.workflow }) }, // Adicionado link para workflow
-    { title: props.process.title || 'Detalhes do Caso' }, // Removido href daqui, já que é a página atual
+    { title: props.process.workflow_label || props.process.workflow || 'Workflow', href: routeHelper('processes.index', { workflow: props.process.workflow }) },
+    { title: props.process.title || 'Detalhes do Caso' },
 ]);
 
-const formatDate = (dateString: string | null | undefined, includeTimeOrOptions: boolean | Intl.DateTimeFormatOptions = false): string => { // Modificado para aceitar opções
+const formatDate = (dateString: string | null | undefined, includeTimeOrOptions: boolean | Intl.DateTimeFormatOptions = false): string => {
     if (!dateString) return 'N/A';
     try {
         const date = new Date(dateString.includes('T') || dateString.includes('Z') ? dateString : dateString + 'T00:00:00Z');
@@ -391,7 +394,7 @@ function openDeleteProcessDialog() { showDeleteProcessDialog.value = true; }
 function submitDeleteProcess() {
     processDeleteForm.delete(routeHelper('processes.destroy', props.process.id), {
         preserveScroll: false,
-        onSuccess: () => showDeleteProcessDialog.value = false, // Redirecionamento é feito pelo backend
+        onSuccess: () => showDeleteProcessDialog.value = false,
         onError: (errors) => console.error('Erro ao excluir processo:', errors)
     });
 }
@@ -437,7 +440,7 @@ function submitProcessDocument() {
         forceFormData: true,
     });
 }
-function openDeleteProcessDocumentDialog(doc: ProcessDocumentType) { processDocumentToDelete.value = doc; showDeleteProcessDocumentDialog.value = true; } // <<< MODIFICADO: Tipo corrigido
+function openDeleteProcessDocumentDialog(doc: ProcessDocumentType) { processDocumentToDelete.value = doc; showDeleteProcessDocumentDialog.value = true; }
 function submitDeleteProcessDocument() {
     if (!processDocumentToDelete.value) return;
     processDocumentDeleteForm.delete(routeHelper('processes.documents.destroy', { process: props.process.id, document: processDocumentToDelete.value.id }), {
@@ -449,7 +452,7 @@ function submitDeleteProcessDocument() {
 function openNewTaskModal() {
     editingTask.value = null;
     taskForm.reset();
-    taskForm.status = 'Pendente'; // Default status for new tasks
+    taskForm.status = 'Pendente';
     taskForm.id = null;
     showTaskDialog.value = true;
 }
@@ -458,7 +461,7 @@ function openEditTaskModal(task: ProcessTask) {
     taskForm.id = task.id;
     taskForm.title = task.title;
     taskForm.description = task.description || '';
-    taskForm.due_date = task.due_date ? formatDateForInput(task.due_date) : ''; // Use formatDateForInput
+    taskForm.due_date = task.due_date ? formatDateForInput(task.due_date) : '';
     taskForm.responsible_user_id = task.responsible_user_id ? String(task.responsible_user_id) : null;
     taskForm.status = task.status || 'Pendente';
     showTaskDialog.value = true;
@@ -545,7 +548,6 @@ function submitFee() {
         },
         onError: (errors) => {
             console.error('Erro ao adicionar honorários:', errors);
-            // Populando os erros no formulário feeForm
             Object.keys(errors).forEach(key => {
                 if (key in feeForm.errors) {
                     (feeForm.errors as Record<string, string>)[key] = errors[key];
@@ -565,7 +567,7 @@ function openEditFeeDialog(fee: PaymentData) {
         editFeeForm.description = dbNotes.substring(0, separatorIndex);
         editFeeForm.notes = dbNotes.substring(separatorIndex + separator.length);
     } else {
-        editFeeForm.description = dbNotes; // Assume que a nota toda é a descrição se não houver separador
+        editFeeForm.description = dbNotes;
         editFeeForm.notes = '';
     }
 
@@ -607,7 +609,7 @@ function submitEditFee() {
         onError: (errors) => {
             console.error('Erro ao atualizar honorários:', errors);
             Object.keys(errors).forEach(key => {
-                 if (key in editFeeForm.errors) {
+                if (key in editFeeForm.errors) {
                     (editFeeForm.errors as Record<string, string>)[key] = errors[key];
                 }
             });
@@ -617,6 +619,7 @@ function submitEditFee() {
 
 function openEditPaymentModal(payment: PaymentData) {
     editingPayment.value = payment;
+    isNoteInDialogExpanded.value = false;
     editPaymentForm.status = payment.status;
 
     if (payment.status === 'paid' && payment.down_payment_date) {
@@ -670,7 +673,7 @@ function submitEditPayment() {
         onError: (errors) => {
             console.error('Erro ao atualizar pagamento:', errors);
             Object.keys(errors).forEach(key => {
-                 if (key in editPaymentForm.errors) {
+                if (key in editPaymentForm.errors) {
                     (editPaymentForm.errors as Record<string, string>)[key] = errors[key];
                 }
             });
@@ -678,14 +681,12 @@ function submitEditPayment() {
     });
 }
 
-// --- Lógica para Gerar Contrato --- <<< ADICIONADO
 const contractTypes = ref<ContractOption[]>([
     {
         id: 'procuracao',
-        label: 'Procuração e DH',
+        label: 'Procuração',
         action: (process) => {
-            const url = routeHelper('processes.documents.generate.procuracao', { processo: process.id });
-            // Abre a URL em uma nova aba. O navegador irá lidar com a resposta (o PDF).
+            const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
             window.open(url, '_blank');
         }
     },
@@ -694,7 +695,6 @@ const contractTypes = ref<ContractOption[]>([
         label: 'Contrato de Aposentadoria',
         action: (process) => {
             const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
-            // Abre a URL em uma nova aba. O navegador irá lidar com a resposta (o PDF).
             window.open(url, '_blank');
         }
     },
@@ -830,7 +830,7 @@ const totalPaymentsAmount = computed(() => {
                                         <Button variant="link" class="p-0 h-auto text-sm text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="statusUpdateForm.processing">
                                             {{ process.status_label || process.status || 'N/A' }}
                                             <ChevronDownIcon class="h-3 w-3 ml-0.5 opacity-70" v-if="!statusUpdateForm.processing" />
-                                             <svg v-else class="animate-spin ml-1 h-3 w-3 text-indigo-600 dark:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <svg v-else class="animate-spin ml-1 h-3 w-3 text-indigo-600 dark:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                             </svg>
@@ -845,14 +845,14 @@ const totalPaymentsAmount = computed(() => {
                                                 :key="statusOption.key"
                                                 :value="statusOption.key"
                                                 class="text-xs"
-                                                 :disabled="statusUpdateForm.processing || statusUpdateForm.status === statusOption.key"
+                                                :disabled="statusUpdateForm.processing || statusUpdateForm.status === statusOption.key"
                                             >
                                                 {{ statusOption.label }}
                                             </DropdownMenuRadioItem>
                                         </DropdownMenuRadioGroup>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
-                                 <span v-else class="ml-1">{{ process.status_label || process.status || 'N/A' }}</span>
+                                <span v-else class="ml-1">{{ process.status_label || process.status || 'N/A' }}</span>
                                 <div v-if="statusUpdateForm.errors.status" class="text-xs text-red-500 ml-2">
                                     {{ statusUpdateForm.errors.status }}
                                 </div>
@@ -861,7 +861,7 @@ const totalPaymentsAmount = computed(() => {
                             <div class="flex items-center">
                                 <AlertTriangle class="h-4 w-4 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                 <span class="font-medium mr-1">Prioridade:</span>
-                                 <DropdownMenu v-if="props.availablePriorities && props.availablePriorities.length > 0 && !isArchived">
+                                <DropdownMenu v-if="props.availablePriorities && props.availablePriorities.length > 0 && !isArchived">
                                     <DropdownMenuTrigger as-child>
                                         <Button variant="link" class="p-0 h-auto text-sm focus-visible:ring-0 focus-visible:ring-offset-0 inline-flex items-center" :disabled="priorityUpdateForm.processing">
                                             <Badge :variant="priorityVariantForDisplay" class="text-xs">
@@ -945,7 +945,7 @@ const totalPaymentsAmount = computed(() => {
                                 <p class="text-gray-500 dark:text-gray-400 mt-1 text-right">
                                     {{ annotation.user_name || annotation.user?.name || 'Sistema' }} - {{ formatDate(annotation.created_at, true) }}
                                 </p>
-                                 <Button
+                                <Button
                                     variant="ghost"
                                     size="icon"
                                     class="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -963,7 +963,7 @@ const totalPaymentsAmount = computed(() => {
             </div>
 
             <div class="w-full lg:w-2/3 xl:w-3/4 flex flex-col overflow-hidden">
-                 <div class="flex-shrink-0 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex-shrink-0 border-b border-gray-200 dark:border-gray-700">
                     <nav class="-mb-px flex space-x-2 px-1" aria-label="Tabs">
                         <button @click="activeMainTab = 'tasks'"
                             :class="['whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm', activeMainTab === 'tasks' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200']">
@@ -1001,7 +1001,7 @@ const totalPaymentsAmount = computed(() => {
                                         <div class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap">
                                             <span v-if="task_item.responsible_user" class="flex items-center"><UserCircle2 class="h-3.5 w-3.5 mr-1"/> {{ task_item.responsible_user?.name || 'N/A' }}</span>
                                             <span v-if="task_item.due_date" class="flex items-center"><Clock class="h-3.5 w-3.5 mr-1"/> Venc.: {{ formatDate(task_item.due_date) }}</span>
-                                             <span v-if="task_item.updated_at && task_item.created_at && task_item.updated_at !== task_item.created_at"
+                                            <span v-if="task_item.updated_at && task_item.created_at && task_item.updated_at !== task_item.created_at"
                                                 class="flex items-center"
                                                 :title="`Criado em: ${formatDate(task_item.created_at, {hour: '2-digit', minute: '2-digit'})}`">
                                                 <Edit2 class="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-gray-400 dark:text-gray-500"/>
@@ -1053,13 +1053,13 @@ const totalPaymentsAmount = computed(() => {
                                         </div>
                                         <div class="flex items-center space-x-2">
                                             <Badge :variant="'outline'"
-                                                   :class="[
-                                                        'text-xs capitalize',
-                                                        payment_item.status === 'paid' ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-700/30 dark:text-green-300 dark:border-green-600' : '',
-                                                        payment_item.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-700/30 dark:text-yellow-300 dark:border-yellow-600' : '',
-                                                        (payment_item.status === 'failed' || payment_item.status === 'refunded' || payment_item.status === 'overdue') ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-700/30 dark:text-red-300 dark:border-red-600' : '',
-                                                        !(payment_item.status === 'paid' || payment_item.status === 'pending' || payment_item.status === 'failed' || payment_item.status === 'refunded' || payment_item.status === 'overdue') ? 'border-gray-300 dark:border-gray-600' : ''
-                                                   ]">
+                                                :class="[
+                                                    'text-xs capitalize',
+                                                    payment_item.status === 'paid' ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-700/30 dark:text-green-300 dark:border-green-600' : '',
+                                                    payment_item.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-700/30 dark:text-yellow-300 dark:border-yellow-600' : '',
+                                                    (payment_item.status === 'failed' || payment_item.status === 'refunded' || payment_item.status === 'overdue') ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-700/30 dark:text-red-300 dark:border-red-600' : '',
+                                                    !(payment_item.status === 'paid' || payment_item.status === 'pending' || payment_item.status === 'failed' || payment_item.status === 'refunded' || payment_item.status === 'overdue') ? 'border-gray-300 dark:border-gray-600' : ''
+                                                ]">
                                                 {{ payment_item.status_label || getPaymentStatusLabel(payment_item.status) }}
                                             </Badge>
                                             <Button
@@ -1091,7 +1091,20 @@ const totalPaymentsAmount = computed(() => {
                                             <span class="font-medium">Juros Pagos:</span> {{ formatCurrency(payment_item.interest_amount) }}
                                         </p>
                                     </div>
-                                     <p v-if="payment_item.notes" class="text-xs text-gray-600 dark:text-gray-400 mt-2 whitespace-pre-wrap"><span class="font-medium">Observações:</span> {{ payment_item.notes }}</p>
+                                    <div v-if="payment_item.notes" class="text-xs text-gray-600 dark:text-gray-400 mt-2 break-words">
+                                        <span class="font-medium">Observações:</span>
+                                        <span>
+                                            {{ (expandedNotes[payment_item.id] || (payment_item.notes && payment_item.notes.length <= 150)) ? payment_item.notes : `${payment_item.notes.substring(0, 150)}...` }}
+                                        </span>
+                                        <button
+                                            v-if="payment_item.notes && payment_item.notes.length > 150"
+                                            @click="toggleNote(payment_item.id)"
+                                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-xs ml-1 font-semibold"
+                                            type="button"
+                                        >
+                                            {{ expandedNotes[payment_item.id] ? 'Ver menos' : 'Ver mais' }}
+                                        </button>
+                                    </div>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">Registrado em: {{ formatDate(payment_item.created_at, true) }}</p>
                                 </CardContent>
                             </Card>
@@ -1106,10 +1119,9 @@ const totalPaymentsAmount = computed(() => {
                     </div>
 
                     <div v-if="activeMainTab === 'documents'" class="space-y-4 py-4">
-                         <div class="flex justify-between items-center">
+                        <div class="flex justify-between items-center">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Documentos</h3>
                             <div class="flex space-x-2">
-                                <!-- Botão Gerar Contrato com Dropdown -->
                                 <DropdownMenu>
                                     <DropdownMenuTrigger as-child>
                                         <Button variant="outline" size="sm" :disabled="isArchived">
@@ -1118,11 +1130,10 @@ const totalPaymentsAmount = computed(() => {
                                             <ChevronDownIcon class="h-4 w-4 ml-2" />
                                         </Button>
                                     </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" class="w-64"> <!-- Ajuste a largura conforme necessário -->
+                                    <DropdownMenuContent align="end" class="w-64">
                                         <DropdownMenuLabel>Selecione um Modelo de Contrato</DropdownMenuLabel>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem v-for="option in contractTypes" :key="option.id" @click="handleGenerateContract(option)">
-                                            <!-- <FileSignature class="h-4 w-4 mr-2 text-gray-500" /> Opcional: ícone para cada item -->
                                             <span>{{ option.label }}</span>
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
@@ -1198,7 +1209,6 @@ const totalPaymentsAmount = computed(() => {
                                     <div class="flex items-center gap-3 min-w-0">
                                         <Paperclip class="h-5 w-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                                         <div class="flex-grow min-w-0">
-                                             <!-- <<< MODIFICADO: uso de getDocumentDownloadUrl -->
                                             <a :href="doc.url || routeHelper('processes.documents.download', { process: process.id, document: doc.id })" target="_blank" :download="doc.file_name || doc.name" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ doc.file_name || doc.name }}</a>
                                             <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
                                                 Enviado por: {{ doc.uploader?.name || 'N/A' }} em: {{ formatDate(doc.created_at) }}
@@ -1208,7 +1218,6 @@ const totalPaymentsAmount = computed(() => {
                                         </div>
                                     </div>
                                     <div class="flex-shrink-0 space-x-1">
-                                         <!-- <<< MODIFICADO: uso de getDocumentDownloadUrl -->
                                         <a :href="doc.url || routeHelper('processes.documents.download', { process: process.id, document: doc.id })" target="_blank" :download="doc.file_name || doc.name">
                                             <Button variant="ghost" size="icon" class="h-8 w-8" title="Baixar documento">
                                                 <Download class="h-4 w-4 text-gray-500 hover:text-indigo-600" />
@@ -1225,8 +1234,8 @@ const totalPaymentsAmount = computed(() => {
                     </div>
 
                     <div v-if="activeMainTab === 'history'" class="space-y-4 py-4">
-                         <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Histórico de Atividades</h3>
-                         <div v-if="process.history_entries && process.history_entries.length > 0" class="space-y-3">
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Histórico de Atividades</h3>
+                        <div v-if="process.history_entries && process.history_entries.length > 0" class="space-y-3">
                             <Card v-for="entry in process.history_entries" :key="entry.id" class="bg-gray-50 dark:bg-gray-800/60">
                                 <CardContent class="p-3 text-xs">
                                    <p><span class="font-semibold">{{ entry.user?.name || entry.user_name || 'Sistema' }}</span> {{ entry.action?.toLowerCase() || 'realizou uma ação' }}: <span class="text-gray-700 dark:text-gray-300">{{ entry.description }}</span></p>
@@ -1240,6 +1249,7 @@ const totalPaymentsAmount = computed(() => {
             </div>
         </div>
 
+        <!-- DIALOGS -->
         <Dialog :open="showDeleteProcessDialog" @update:open="showDeleteProcessDialog = $event">
             <DialogContent class="sm:max-w-md">
                 <DialogHeader>
@@ -1273,14 +1283,14 @@ const totalPaymentsAmount = computed(() => {
                         </blockquote>
                         Esta ação não poderá ser desfeita.
                     </DialogDescription>
-                     <DialogDescription v-else>
+                    <DialogDescription v-else>
                         Tem certeza de que deseja excluir esta anotação? Esta ação não poderá ser desfeita.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
                     <Button variant="outline" type="button" @click="showDeleteProcessAnnotationDialog = false; processAnnotationToDelete = null;">Cancelar</Button>
                     <Button variant="destructive" :disabled="processAnnotationDeleteForm.processing" @click="submitDeleteProcessAnnotation">
-                         <svg v-if="processAnnotationDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg v-if="processAnnotationDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
@@ -1304,7 +1314,7 @@ const totalPaymentsAmount = computed(() => {
                 <DialogFooter class="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
                     <DialogClose as-child><Button variant="outline" type="button" @click="showDeleteProcessDocumentDialog = false; processDocumentToDelete = null;">Cancelar</Button></DialogClose>
                     <Button variant="destructive" :disabled="processDocumentDeleteForm.processing" @click="submitDeleteProcessDocument">
-                         <svg v-if="processDocumentDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg v-if="processDocumentDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
@@ -1337,7 +1347,7 @@ const totalPaymentsAmount = computed(() => {
                         <div>
                             <Label for="taskDueDate">Data de Vencimento</Label>
                             <Input id="taskDueDate" type="date" v-model="taskForm.due_date" />
-                             <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
+                            <div v-if="taskForm.errors.due_date" class="text-sm text-red-500 mt-1">{{ taskForm.errors.due_date }}</div>
                         </div>
                         <div>
                             <Label for="taskResponsible">Responsável</Label>
@@ -1355,7 +1365,7 @@ const totalPaymentsAmount = computed(() => {
                             <div v-if="taskForm.errors.responsible_user_id" class="text-sm text-red-500 mt-1">{{ taskForm.errors.responsible_user_id }}</div>
                         </div>
                     </div>
-                     <div>
+                    <div>
                         <Label for="taskStatus">Status da Tarefa</Label>
                         <Select v-model="taskForm.status">
                             <SelectTrigger id="taskStatus">
@@ -1374,7 +1384,7 @@ const totalPaymentsAmount = computed(() => {
                         <Button type="submit" :disabled="taskForm.processing">
                             <PlusCircle class="mr-2 h-4 w-4" v-if="!editingTask && !taskForm.processing" />
                             <Edit3 class="mr-2 h-4 w-4" v-if="editingTask && !taskForm.processing" />
-                             <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg v-if="taskForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
@@ -1397,7 +1407,7 @@ const totalPaymentsAmount = computed(() => {
                 <DialogFooter class="mt-4">
                     <Button variant="outline" @click="showDeleteTaskDialog = false; taskToDelete = null;">Cancelar</Button>
                     <Button variant="destructive" @click="submitDeleteTask" :disabled="taskDeleteForm.processing">
-                         <svg v-if="taskDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg v-if="taskDeleteForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
@@ -1464,7 +1474,7 @@ const totalPaymentsAmount = computed(() => {
                             {{ feeForm.is_installment ? 'Pagamento da 1ª Parcela/Entrada (Opcional)' : 'Detalhes do Pagamento (Opcional)'}}
                         </Label>
                         <div class="flex items-center space-x-2 mt-4">
-                             <input type="checkbox" id="is_first_payment_paid" v-model="feeForm.is_first_payment_paid" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:ring-offset-gray-800 dark:focus:ring-indigo-600" />
+                            <input type="checkbox" id="is_first_payment_paid" v-model="feeForm.is_first_payment_paid" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:ring-offset-gray-800 dark:focus:ring-indigo-600" />
                             <Label for="is_first_payment_paid" class="text-sm font-medium">
                                 {{ feeForm.is_installment ? '1ª Parcela/Entrada já foi paga?' : 'Honorário já foi pago?' }}
                             </Label>
@@ -1479,7 +1489,7 @@ const totalPaymentsAmount = computed(() => {
                             </div>
                             <div>
                                 <Label for="fee_payment_method_single">Forma de Pagamento</Label>
-                                 <Select v-model="feeForm.payment_method">
+                                <Select v-model="feeForm.payment_method">
                                     <SelectTrigger id="fee_payment_method_single">
                                         <SelectValue placeholder="Selecione a forma" />
                                     </SelectTrigger>
@@ -1508,7 +1518,7 @@ const totalPaymentsAmount = computed(() => {
                         <DialogClose as-child><Button type="button" variant="outline" @click="showAddFeeDialog = false; feeForm.reset(); feeForm.clearErrors();">Cancelar</Button></DialogClose>
                         <Button type="submit" :disabled="feeForm.processing">
                             <HandCoins class="mr-2 h-4 w-4" v-if="!feeForm.processing" />
-                             <svg v-if="feeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg v-if="feeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
@@ -1548,7 +1558,7 @@ const totalPaymentsAmount = computed(() => {
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <Label for="editFeePaymentMethod">Forma de Pagamento</Label>
-                                <Select v-model="editFeeForm.payment_method">
+                            <Select v-model="editFeeForm.payment_method">
                                 <SelectTrigger id="editFeePaymentMethod">
                                     <SelectValue placeholder="Selecione a forma" />
                                 </SelectTrigger>
@@ -1587,7 +1597,7 @@ const totalPaymentsAmount = computed(() => {
                         <DialogClose as-child><Button type="button" variant="outline" @click="showEditFeeDialog = false; editFeeForm.reset(); editingFee = null; editFeeForm.clearErrors();">Cancelar</Button></DialogClose>
                         <Button type="submit" :disabled="editFeeForm.processing">
                             <Edit3 class="mr-2 h-4 w-4" v-if="!editFeeForm.processing" />
-                             <svg v-if="editFeeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg v-if="editFeeForm.processing" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
@@ -1607,8 +1617,15 @@ const totalPaymentsAmount = computed(() => {
                         <p class="text-sm"><strong>ID:</strong> {{ editingPayment.id }}</p>
                         <p class="text-sm"><strong>Valor Principal:</strong> {{ formatCurrency(editingPayment.total_amount) }}</p>
                         <p class="text-sm"><strong>Vencimento:</strong> {{ formatDate(editingPayment.first_installment_due_date || editingPayment.down_payment_date) }}</p>
-                        <p class="text-sm truncate" :title="editingPayment.notes || ''"><strong>Notas:</strong> {{ editingPayment.notes || 'N/A' }}</p>
-                         <p v-if="editingPayment.interest_amount && parseFloat(String(editingPayment.interest_amount)) > 0" class="text-sm text-red-500 dark:text-red-400">
+                        <div v-if="editingPayment.notes" class="text-sm break-words">
+                            <strong>Notas:</strong>
+                            <span>
+                                {{ (isNoteInDialogExpanded || editingPayment.notes.length <= 80) ? editingPayment.notes : `${editingPayment.notes.substring(0, 60)}...` }}
+                            </span>
+                        </div>
+                         <p v-else class="text-sm"><strong>Notas:</strong> N/A</p>
+
+                        <p v-if="editingPayment.interest_amount && parseFloat(String(editingPayment.interest_amount)) > 0" class="text-sm text-red-500 dark:text-red-400">
                             <strong>Juros Atuais:</strong> {{ formatCurrency(editingPayment.interest_amount) }}
                         </p>
                     </DialogDescription>

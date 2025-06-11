@@ -756,87 +756,88 @@ class ProcessController extends Controller
     }
 
 
-    public function edit(Process $process): Response
+ public function edit(Process $process): Response
     {
         $process->load([
             'contact:id,name,business_name,type',
             'responsible:id,name',
             'payments' => fn($query) => $query->orderBy('first_installment_due_date', 'asc')->orderBy('created_at', 'asc')
         ]);
-        $process->payments->each->append('status_label');
 
         $users = User::orderBy('name')->get(['id', 'name']);
         $contacts = Contact::orderBy('name')->get(['id', 'name', 'business_name', 'type']);
-        $availableWorkflows = (defined('App\Models\Process::WORKFLOWS') && is_array(Process::WORKFLOWS)) ?
-            collect(Process::WORKFLOWS)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() : [];
+        
+        $availableWorkflows = collect(Process::WORKFLOWS ?? [])->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
         $allStages = [];
-        if (defined('App\Models\Process::WORKFLOWS') && is_array(Process::WORKFLOWS) && method_exists(Process::class, 'getStagesForWorkflow')) {
+        if (!empty($availableWorkflows)) {
             foreach (array_keys(Process::WORKFLOWS) as $workflowKey) {
                 $allStages[$workflowKey] = collect(Process::getStagesForWorkflow($workflowKey))
                     ->map(fn($label, $key) => ['key' => (int) $key, 'label' => $label])->values()->all();
             }
         }
-        $statusesForForm = (defined('App\Models\Process::STATUSES') && is_array(Process::STATUSES)) ?
-            collect(Process::STATUSES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            Process::select('status')->distinct()->whereNotNull('status')->where('status', '!=', '')->orderBy('status')->get()->pluck('status')->map(fn($s) => ['key' => $s, 'label' => ucfirst((string) $s)])->all();
-        $prioritiesForForm = (defined('App\Models\Process::PRIORITIES') && is_array(Process::PRIORITIES)) ?
-            collect(Process::PRIORITIES)->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all() :
-            [['key' => Process::PRIORITY_LOW ?? 'low', 'label' => 'Baixa'], ['key' => Process::PRIORITY_MEDIUM ?? 'medium', 'label' => 'Média'], ['key' => Process::PRIORITY_HIGH ?? 'high', 'label' => 'Alta']];
+        $statusesForForm = collect(Process::STATUSES ?? [])->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
+        $prioritiesForForm = collect(Process::PRIORITIES ?? [])->map(fn($label, $key) => ['key' => $key, 'label' => $label])->values()->all();
+        
+        $consultationPayment = $process->payments->firstWhere('payment_type', PaymentType::HONORARIO->value);
+        $regularPayments = $process->payments->where('payment_type', '!=', PaymentType::HONORARIO->value);
 
         $paymentDataForForm = [
+            'charge_consultation' => (bool) $consultationPayment,
+            'consultation_fee_amount' => $consultationPayment?->total_amount,
             'total_amount' => null,
             'advance_payment_amount' => null,
-            'payment_type' => 'a_vista',
+            'payment_type' => null,
             'payment_method' => null,
             'single_payment_date' => null,
             'number_of_installments' => null,
             'first_installment_due_date' => null,
             'notes' => null,
+            'value_of_installment' => null, // Campo para o valor da parcela pré-calculado
         ];
 
-        if ($process->payments && $process->payments->isNotEmpty()) {
-            $regularPayments = $process->payments->filter(fn($p) => $p->payment_type !== PaymentType::HONORARIO->value);
-            if ($regularPayments->isNotEmpty()) {
-                $totalContractValue = $regularPayments->sum('total_amount');
-                $entryPayment = $regularPayments->firstWhere('down_payment_amount', '>', 0);
+        if ($regularPayments->isNotEmpty()) {
+            $entryPayment = $regularPayments->firstWhere('down_payment_amount', '>', 0);
+            $installments = $regularPayments->where('down_payment_amount', 0);
+            
+            $totalContractValue = $regularPayments->sum('total_amount');
+            $paymentDataForForm['total_amount'] = $totalContractValue > 0 ? $totalContractValue : null;
 
-                $paymentDataForForm['total_amount'] = $totalContractValue;
-                if ($entryPayment) {
-                    $paymentDataForForm['advance_payment_amount'] = $entryPayment->down_payment_amount;
-                    $paymentDataForForm['single_payment_date'] = $entryPayment->down_payment_date ? Carbon::parse($entryPayment->down_payment_date)->toDateString() : ($entryPayment->first_installment_due_date ? Carbon::parse($entryPayment->first_installment_due_date)->toDateString() : null);
-                    $paymentDataForForm['payment_method'] = $entryPayment->payment_method;
-                    $paymentDataForForm['notes'] = $entryPayment->notes;
-                }
+            if ($entryPayment) {
+                $paymentDataForForm['advance_payment_amount'] = $entryPayment->down_payment_amount;
+                $paymentDataForForm['single_payment_date'] = $entryPayment->first_installment_due_date ? Carbon::parse($entryPayment->first_installment_due_date)->toDateString() : null;
+            }
 
-                $firstInstallment = $regularPayments->where('down_payment_amount', 0)->sortBy('first_installment_due_date')->first();
-                if ($firstInstallment) {
-                    $paymentDataForForm['payment_type'] = $firstInstallment->payment_type instanceof PaymentType ? $firstInstallment->payment_type->value : $firstInstallment->payment_type;
-                    $paymentDataForForm['number_of_installments'] = $firstInstallment->number_of_installments;
-                    $paymentDataForForm['first_installment_due_date'] = $firstInstallment->first_installment_due_date ? Carbon::parse($firstInstallment->first_installment_due_date)->toDateString() : null;
-                    if (!$entryPayment) {
-                        $paymentDataForForm['payment_method'] = $firstInstallment->payment_method;
-                        if (is_null($paymentDataForForm['notes']))
-                            $paymentDataForForm['notes'] = $firstInstallment->notes;
-                    }
-                } elseif ($entryPayment && !$firstInstallment) {
-                    $paymentDataForForm['payment_type'] = $entryPayment->payment_type instanceof PaymentType ? $entryPayment->payment_type->value : $entryPayment->payment_type;
-                    if ($paymentDataForForm['payment_type'] === PaymentType::A_VISTA->value) {
-                        $paymentDataForForm['number_of_installments'] = 1;
-                    }
+            $firstPaymentRecord = $entryPayment ?? $installments->first();
+            if ($firstPaymentRecord) {
+                 $paymentDataForForm['payment_method'] = $firstPaymentRecord->payment_method;
+                 $paymentDataForForm['payment_type'] = $firstPaymentRecord->payment_type instanceof PaymentType ? $firstPaymentRecord->payment_type->value : $firstPaymentRecord->payment_type;
+            }
+
+            if ($installments->isNotEmpty()) {
+                $firstInstallment = $installments->first();
+                $numberOfInstallments = $firstInstallment->number_of_installments;
+                
+                $paymentDataForForm['number_of_installments'] = $numberOfInstallments;
+                $paymentDataForForm['first_installment_due_date'] = $firstInstallment->first_installment_due_date ? Carbon::parse($firstInstallment->first_installment_due_date)->toDateString() : null;
+                
+                // <<< CÁLCULO DO VALOR DA PARCELA >>>
+                $amountToFinance = $totalContractValue - ($entryPayment?->down_payment_amount ?? 0);
+                if ($numberOfInstallments > 0 && $amountToFinance > 0) {
+                    $paymentDataForForm['value_of_installment'] = round($amountToFinance / $numberOfInstallments, 2);
                 }
+                
+                $paymentDataForForm['notes'] = preg_replace('/ \(Parcela \d+ de \d+\)/', '', (string)$firstInstallment->notes);
+
+            } elseif ($entryPayment && $entryPayment->total_amount == $totalContractValue) {
+                 $paymentDataForForm['payment_type'] = PaymentType::A_VISTA->value;
             }
         }
-
+        
         $paymentMethods = ['Cartão de Crédito', 'Boleto', 'PIX', 'Transferência Bancária', 'Dinheiro', 'Cheque', 'Outro'];
-        $paymentTypes = method_exists(PaymentType::class, 'forFrontend') ?
-            collect(PaymentType::cases())
-                ->filter(fn($case) => $case->value !== PaymentType::HONORARIO->value)
-                ->map(fn($case) => ['value' => $case->value, 'label' => $case->label()])
-                ->values()->all() :
-            collect(PaymentType::cases())
-                ->filter(fn($case) => $case->value !== PaymentType::HONORARIO->value)
-                ->map(fn($case) => ['value' => $case->value, 'label' => str_replace('_', ' ', ucfirst(strtolower($case->name)))])
-                ->values()->all();
+        $paymentTypes = collect(PaymentType::cases())
+            ->filter(fn($case) => $case->value !== PaymentType::HONORARIO->value)
+            ->map(fn($case) => ['value' => $case->value, 'label' => $case->label()])
+            ->values()->all();
 
         return Inertia::render('processes/Edit', [
             'process' => $process,
@@ -865,6 +866,15 @@ class ProcessController extends Controller
             'priority' => ['required', Rule::in(array_keys(Process::PRIORITIES ?? []))],
             'origin' => 'nullable|string|max:100',
             'status' => ['nullable', 'string', Rule::in(array_keys(Process::STATUSES ?? []))],
+
+            'payment.charge_consultation' => 'sometimes|required|boolean',
+            'payment.consultation_fee_amount' => [
+                'nullable',
+                'numeric',
+                'min:0.01',
+                Rule::requiredIf(fn() => $request->input('payment.charge_consultation') == true),
+            ],
+            
             'payment.total_amount' => 'nullable|numeric|min:0.01|required_with:payment.payment_type',
             'payment.advance_payment_amount' => 'nullable|numeric|min:0|lte:payment.total_amount',
             'payment.payment_type' => [
@@ -895,7 +905,7 @@ class ProcessController extends Controller
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
+                           ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.first_installment_due_date' => [
@@ -904,7 +914,7 @@ class ProcessController extends Controller
                 Rule::requiredIf(function () use ($request) {
                     $payment = $request->input('payment', []);
                     return ($payment['payment_type'] ?? null) === PaymentType::PARCELADO->value &&
-                        ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
+                           ((float) ($payment['total_amount'] ?? 0) - (float) ($payment['advance_payment_amount'] ?? 0)) > 0;
                 }),
             ],
             'payment.notes' => 'nullable|string|max:1000',
@@ -923,10 +933,33 @@ class ProcessController extends Controller
         try {
             $processData = collect($validatedData)->except('payment')->all();
             $process->update($processData);
-            $process->payments()->where('payment_type', '!=', PaymentType::HONORARIO->value)->forceDelete();
-            $paymentInput = $validatedData['payment'] ?? null;
+            
+            $paymentInput = $validatedData['payment'] ?? [];
 
-            if ($paymentInput && isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] > 0 && isset($paymentInput['payment_type'])) {
+            $shouldHaveConsultationFee = !empty($paymentInput['charge_consultation']) && !empty($paymentInput['consultation_fee_amount']) && (float) $paymentInput['consultation_fee_amount'] > 0;
+            $existingConsultationFee = $process->payments()->where('payment_type', PaymentType::HONORARIO->value)->first();
+
+            if ($shouldHaveConsultationFee) {
+                $consultationFeeAmount = (float) $paymentInput['consultation_fee_amount'];
+                $process->payments()->updateOrCreate(
+                    [ 'payment_type' => PaymentType::HONORARIO->value ],
+                    [
+                        'total_amount' => $consultationFeeAmount,
+                        'payment_method' => $paymentInput['payment_method'] ?? $existingConsultationFee?->payment_method,
+                        'number_of_installments' => 1,
+                        'value_of_installment' => $consultationFeeAmount,
+                        'status' => $existingConsultationFee?->status ?? ProcessPayment::STATUS_PENDING,
+                        'first_installment_due_date' => $existingConsultationFee?->first_installment_due_date ?? Carbon::today()->toDateString(),
+                        'notes' => 'Honorário de Consulta Inicial',
+                    ]
+                );
+            } elseif ($existingConsultationFee) {
+                $existingConsultationFee->forceDelete();
+            }
+
+            $process->payments()->where('payment_type', '!=', PaymentType::HONORARIO->value)->forceDelete();
+
+            if (isset($paymentInput['total_amount']) && (float) $paymentInput['total_amount'] > 0 && isset($paymentInput['payment_type'])) {
                 $purchaseTotalAmount = (float) $paymentInput['total_amount'];
                 $downPaymentAmountFromInput = isset($paymentInput['advance_payment_amount']) ? (float) $paymentInput['advance_payment_amount'] : 0;
                 $paymentTypeFromInput = PaymentType::from($paymentInput['payment_type']);
@@ -937,79 +970,54 @@ class ProcessController extends Controller
 
                 if ($downPaymentAmountFromInput > 0) {
                     $process->payments()->create([
-                        'id' => Str::uuid()->toString(),
                         'total_amount' => $downPaymentAmountFromInput,
                         'down_payment_amount' => $downPaymentAmountFromInput,
                         'payment_type' => $paymentTypeFromInput,
                         'payment_method' => $paymentMethodFromInput,
                         'down_payment_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
-                        'number_of_installments' => ($paymentTypeFromInput === PaymentType::PARCELADO && $amountToFinance > 0) ? (int) ($paymentInput['number_of_installments'] ?? 1) : 1,
+                        'number_of_installments' => 1,
                         'value_of_installment' => $downPaymentAmountFromInput,
                         'status' => ProcessPayment::STATUS_PAID,
                         'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
-                        'notes' => $notesFromInput ? $notesFromInput . ' (Entrada)' : 'Entrada do pagamento (Atualizado)',
+                        'notes' => $notesFromInput ? $notesFromInput . ' (Entrada)' : 'Entrada do pagamento',
                     ]);
                 }
 
                 if ($amountToFinance > 0) {
                     if ($paymentTypeFromInput === PaymentType::A_VISTA) {
                         $process->payments()->create([
-                            'id' => Str::uuid()->toString(),
                             'total_amount' => $amountToFinance,
-                            'down_payment_amount' => 0,
                             'payment_type' => $paymentTypeFromInput,
                             'payment_method' => $paymentMethodFromInput,
-                            'down_payment_date' => null,
                             'number_of_installments' => 1,
                             'value_of_installment' => $amountToFinance,
                             'status' => ProcessPayment::STATUS_PENDING,
                             'first_installment_due_date' => $dateForEntryOrSinglePayment ? Carbon::parse($dateForEntryOrSinglePayment) : null,
-                            'notes' => $notesFromInput ?? 'Pagamento à vista (restante - Atualizado)',
+                            'notes' => $notesFromInput ?? 'Pagamento à vista (restante)',
                         ]);
                     } elseif ($paymentTypeFromInput === PaymentType::PARCELADO) {
                         $numberOfInstallmentsForFinancing = (int) ($paymentInput['number_of_installments'] ?? 1);
-                        if ($numberOfInstallmentsForFinancing <= 0)
-                            $numberOfInstallmentsForFinancing = 1;
+                        if ($numberOfInstallmentsForFinancing <= 0) $numberOfInstallmentsForFinancing = 1;
                         $baseInstallmentValue = round($amountToFinance / $numberOfInstallmentsForFinancing, 2);
                         $currentDueDate = Carbon::parse($paymentInput['first_installment_due_date']);
                         for ($i = 1; $i <= $numberOfInstallmentsForFinancing; $i++) {
-                            $currentInstallmentValue = $baseInstallmentValue;
-                            if ($i === $numberOfInstallmentsForFinancing) {
-                                $sumOfPreviousInstallments = round($baseInstallmentValue * ($numberOfInstallmentsForFinancing - 1), 2);
-                                $currentInstallmentValue = round($amountToFinance - $sumOfPreviousInstallments, 2);
-                            }
+                            $currentInstallmentValue = ($i === $numberOfInstallmentsForFinancing)
+                                ? round($amountToFinance - ($baseInstallmentValue * ($i - 1)), 2)
+                                : $baseInstallmentValue;
                             $parcelSpecificNotes = "Parcela {$i} de {$numberOfInstallmentsForFinancing}";
-                            if ($notesFromInput) {
-                                $parcelSpecificNotes = $notesFromInput . " ({$parcelSpecificNotes})";
-                            }
+                            if ($notesFromInput) $parcelSpecificNotes = $notesFromInput . " ({$parcelSpecificNotes})";
                             $process->payments()->create([
-                                'id' => Str::uuid()->toString(),
                                 'total_amount' => $currentInstallmentValue,
-                                'down_payment_amount' => 0,
                                 'payment_type' => $paymentTypeFromInput,
                                 'payment_method' => $paymentMethodFromInput,
-                                'down_payment_date' => null,
                                 'number_of_installments' => $numberOfInstallmentsForFinancing,
                                 'value_of_installment' => $currentInstallmentValue,
                                 'status' => ProcessPayment::STATUS_PENDING,
                                 'first_installment_due_date' => $currentDueDate->copy()->toDateString(),
-                                'notes' => $parcelSpecificNotes . ' (Atualizado)',
+                                'notes' => $parcelSpecificNotes,
                             ]);
-                            if ($i < $numberOfInstallmentsForFinancing) {
-                                $currentDueDate->addMonthNoOverflow();
-                            }
+                            if ($i < $numberOfInstallmentsForFinancing) $currentDueDate->addMonthNoOverflow();
                         }
-                    }
-                } elseif ($purchaseTotalAmount > 0 && $downPaymentAmountFromInput === $purchaseTotalAmount) {
-                    $entryPaymentRecord = $process->payments()
-                        ->where('down_payment_amount', $downPaymentAmountFromInput)
-                        ->where('total_amount', $downPaymentAmountFromInput)
-                        ->latest()->first();
-                    if ($entryPaymentRecord && $entryPaymentRecord->number_of_installments > 1) {
-                        $entryPaymentRecord->update([
-                            'number_of_installments' => 1,
-                            'notes' => ($entryPaymentRecord->notes ?? '') . ' (Quitado integralmente com entrada - Atualizado)'
-                        ]);
                     }
                 }
             }
