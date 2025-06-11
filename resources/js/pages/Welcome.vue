@@ -1,9 +1,10 @@
 <template>
+    <Head title="Início" />
     <div class="min-h-screen flex flex-col items-center justify-center bg-[#D16002] p-6">
         <h1 class="text-5xl font-bold text-white mb-4 animate-fadeInDown">GestLex</h1>
         <p class="text-xl text-white mb-8 animate-fadeInDown animation-delay-200">Gestão Jurídica Simplificada</p>
 
-        <a href="/login">
+        <a href="/contacts">
             <button
                 class="mb-12 bg-white text-[#D16002] font-bold py-2 px-6 rounded-full shadow-lg hover:bg-gray-100 transition duration-300 animate-fadeInDown animation-delay-400">
                 Entrar no sistema
@@ -22,6 +23,7 @@
 </template>
 
 <script setup lang="ts">
+import { Head } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
 interface Feature {
