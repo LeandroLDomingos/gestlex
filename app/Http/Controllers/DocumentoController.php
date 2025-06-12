@@ -140,11 +140,9 @@ class DocumentoController extends Controller
     private function getPaymentClauseText(Process $processo): string
     {
         $payments = $processo->payments()
-            ->where('transaction_nature', 'receita')
-            ->where('payment_type', '!=', 'on_success')
+            ->where('payment_type', '!=', 'honorario')
             ->orderBy('created_at')
             ->get();
-
         if ($payments->isEmpty()) {
             return 'Em remuneração pelos serviços profissionais ora contratados, os honorários serão definidos conforme acordo prévio entre as partes.';
         }
@@ -205,7 +203,7 @@ class DocumentoController extends Controller
                 '%s, %s, %s, %s, portador do RG %s e inscrito no CPF sob o nº %s, residente e domiciliado na %s, nº %s, %s, %s/%s, CEP %s',
                 strtoupper($contato->name),
                 $contato->nationality_full_name ?? 'nacionalidade não informada',
-                $contato->marital_status_full_name ?? 'estado civil não informado',
+                $contato->marital_status_label ?? 'estado civil não informado',
                 $contato->profession ?? 'profissão não informada',
                 $contato->rg ?? 'RG não informado',
                 $contato->cpf_cnpj ?? 'CPF não informado',
