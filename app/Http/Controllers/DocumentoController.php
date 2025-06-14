@@ -53,7 +53,7 @@ class DocumentoController extends Controller
         ]);
 
         // --- LÓGICA DE RECONSTRUÇÃO DO PARÁGRAFO ---
-    	// 1. O texto que o usuário editou
+        // 1. O texto que o usuário editou
         $parte1_editavel = $validatedData['paragrafo_abertura'];
 
         // 3. O texto fixo da advogada
@@ -144,6 +144,69 @@ class DocumentoController extends Controller
 
         $pdf = Pdf::loadView('pdfs.procuracao', $dados);
         $nomeArquivo = "procuracao" . Str::slug($outorgante->name) . ".pdf";
+        return $pdf->stream($nomeArquivo);
+    }
+
+    // --- PEDIDO MÉDICO ---
+
+    /**
+     * Mostra o formulário para preencher o Pedido Médico.
+     */
+    public function showPedidoMedicoForm(Process $processo)
+    {
+        $processo->load('contact');
+
+        // Textos padrão que podem ser editados pelo usuário no formulário
+        $textosPadrao = [
+            'introducao' => "Estimado MÉDICO(a), o(a) Sr(a). {NOME_PACIENTE}, Vosso(a) paciente, procurou-nos com o intuito de pleitear a concessão de {TIPO_BENEFICIO} face os problemas de saúde enfrentados.",
+            'pedido_principal' => "Por esta razão, gentilmente, solicitamos ao vosso senhor, com base na resolução n 2.183\\2018 do Conselho Federal de Medicina, A EMISSÃO DE LAUDO MÉDICO que contemple análise DETALHADA da condição de saúde do paciente a luz da DEFICIÊNCIA OU INCAPACIDADE, com informações do CID DAS DOENÇAS ACOMETIDAS, DESCRIÇÃO DE SUAS IMPOSSIBILIDADES, TEMPO DE INÍCIO DA INCAPACIDADE e TRATAMENTO, SE HÁ PREVISÃO DE RECUPERAÇÃO E QUAL SERIA O PRAZO, a fim de permitir melhores condições para a correta apreciação do caso, visando, como objetivo último, o bem-estar da paciente e especialmente a dignidade para o tratamento.",
+            'pedido_relacao_trabalho' => "Ainda, solicito que por gentileza Vosso Senhor pontue também se as doenças apresentadas pelo paciente POSSUEM RELAÇÃO COM AS RESPECTIVAS ATIVIDADES PROFISSIONAIS DESEMPENHADAS, AINDA QUE DE FORMA INDIRETA, seja como fator gerador da enfermidade, seja como agravante e etc.",
+            'pedido_atestado' => "Por fim, caso Vosso Senhor ENTENDA que o(a) Segurado(a) se encontra incapacitado(a) para o trabalho requer em acompanhamento ao laudo médico, seja expedido o competente atestado, que segundo as exigências do Instituto Nacional do Seguro Social deve conter: CID da doença, Data de início do afastamento, Prazo de Afastamento, CRM e assinatura do médico.",
+        ];
+
+        return Inertia::render('Documents/PedidoMedicoForm', [
+            'process' => $processo,
+            'textosPadrao' => $textosPadrao,
+        ]);
+    }
+
+    /**
+     * Gera o PDF do Pedido Médico a partir dos dados do formulário.
+     */
+    public function gerarPedidoMedicoPdf(Request $request, Process $processo)
+    {
+        $paciente = $processo->contact;
+        if (!$paciente) {
+            abort(404, 'Paciente não associado a este processo.');
+        }
+
+        $validatedData = $request->validate([
+            'tipo_beneficio' => 'required|string|max:255',
+            'introducao' => 'required|string',
+            'pedido_principal' => 'required|string',
+            'pedido_relacao_trabalho' => 'required|string',
+            'pedido_atestado' => 'required|string',
+        ]);
+
+        // Substitui os placeholders no texto de introdução
+        $introducaoProcessada = str_replace(
+            ['{NOME_PACIENTE}', '{TIPO_BENEFICIO}'],
+            [strtoupper($paciente->name), strtoupper($validatedData['tipo_beneficio'])],
+            $validatedData['introducao']
+        );
+
+        $dados = [
+            'introducao' => $introducaoProcessada,
+            'pedido_principal' => $validatedData['pedido_principal'],
+            'pedido_relacao_trabalho' => $validatedData['pedido_relacao_trabalho'],
+            'pedido_atestado' => $validatedData['pedido_atestado'],
+            'local_emissao' => 'Lagoa Santa',
+            'data_emissao' => Carbon::now()->locale('pt_BR')->translatedFormat('d \d\e F \d\e Y'),
+        ];
+
+        $pdf = Pdf::loadView('pdfs.pedido_medico', $dados);
+        $nomeArquivo = "pedido-medico-" . Str::slug($paciente->name) . ".pdf";
+
         return $pdf->stream($nomeArquivo);
     }
 

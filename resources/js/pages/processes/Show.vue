@@ -706,6 +706,14 @@ const contractTypes = ref<ContractOption[]>([
             window.open(url, '_self');
         }
     },
+    {
+        id: 'medico',
+        label: 'Pedido Médico',
+        action: (process) => {
+            const url = routeHelper('processes.documents.show.pedido-medico.form', { processo: process.id });
+            window.open(url, '_self');
+        }
+    },
 ]);
 
 const handleGenerateContract = (option: ContractOption) => {

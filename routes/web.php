@@ -123,6 +123,12 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
             ->name('show.declaracao.form');
         Route::post('/declaracao/gerar', [DocumentoController::class, 'gerarDeclaracaoNecessitadoPdf'])
             ->name('generate.declaracao');
+
+        // Rotas para Documento: Pedido Médico
+        Route::get('/pedido-medico/formulario', [DocumentoController::class, 'showPedidoMedicoForm'])
+            ->name('show.pedido-medico.form');
+        Route::post('/pedido-medico/gerar', [DocumentoController::class, 'gerarPedidoMedicoPdf'])
+            ->name('generate.pedido-medico');
     });
 });
 

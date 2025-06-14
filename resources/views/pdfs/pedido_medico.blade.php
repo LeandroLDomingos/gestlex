@@ -30,7 +30,7 @@
 <html lang="pt-BR">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>Contrato</title>
+    <title>Pedido Médico</title>
     <style>
         @page {
             margin: 150px 80px 100px 80px; /* Topo, Direita, Baixo, Esquerda */
@@ -74,7 +74,7 @@
         .footer-content table { width: 100%; border-spacing: 5px; }
         .footer-content td { vertical-align: middle; }
         .footer-content img { width: 14px; height: 14px; vertical-align: middle; margin-right: 8px; }
-        main { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.5; text-align: justify; }
+        main { font-family: 'Times New Roman', Times, serif; font-size: 10pt; line-height: 1.5; text-align: justify; }
         main h3 { text-align: center; font-weight: normal; font-family: Cambria, "DejaVu Serif", "Times New Roman", Times, serif; }
         main p { margin-bottom: 20px; }
         .assinatura { text-align: center; margin-top: 50px; }
@@ -119,46 +119,28 @@
     </footer>
 
     <main>
-        <br>
-        <h3><strong>CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS</strong></h3>
-        <br>
-        <br>
-        <p>{!! nl2br($paragrafo_completo) !!}</p>
+    <h3><strong>PEDIDO MÉDICO</strong></h3>
 
-        {{-- As cláusulas agora usam as variáveis do controller --}}
-        <p><strong>Cláusula Primeira</strong> – {!! nl2br(e($clausula_1)) !!}</p>
-        <p><strong>Cláusula Segunda</strong> – {!! nl2br(e($clausula_2)) !!}</p>
-        <p><strong>Cláusula Terceira</strong> – {!! nl2br(e($clausula_3)) !!}</p>
-        <p><strong>Parágrafo Primeiro</strong> – {!! nl2br(e($paragrafo_primeiro_clausula_3)) !!}</p>
-        <p><strong>Cláusula Quarta</strong> – {!! nl2br(e($clausula_4)) !!}</p>
-        <p><strong>Cláusula Quinta</strong> - {!! nl2br(e($clausula_5)) !!}</p>
-        <p><strong>Cláusula Sexta</strong> - {!! nl2br(e($clausula_6)) !!}</p>
-        <p><strong>Cláusula Sétima</strong> - {!! nl2br(e($clausula_7)) !!}</p>
-        <p>{!! nl2br(e($texto_final)) !!}</p>
+        <p>{!! nl2br(e($introducao)) !!} Com efeito, é certo que o Médico que acompanha o(a) segurado(a) enfermo(a) é o profissional gabaritado para ESCLARECER o quadro clínico do paciente, haja visto, o regular acompanhamento.</p> 
 
-        <p style="text-align: center;">
-            {{ $local_emissao }}, {{ $data_emissao }}.
-        </p>
+        <p>{!! nl2br(e($pedido_principal)) !!}</p> 
+
+        <p>{!! nl2br(e($pedido_relacao_trabalho)) !!}</p> 
         
-        <br>
+        <p>Frisa-se que o fornecimento de laudo médico com referidas informações é fundamental para análise do caso.</p>
 
-        {{-- Assinaturas permanecem como no original --}}
+        <p><u>{!! nl2br(e($pedido_atestado)) !!}</u></p> 
+        
+        <p>Desde já agradeço a atenção de Vosso Senhor e me coloco a disposição para esclarecimento de dúvidas.</p> 
+
         <div class="assinatura">
-            <span class="assinatura-linha"></span>
-            <strong>{{ strtoupper($outorgante->name ?: ($outorgante->business_name ?? 'ASSINATURA OUTORGANTE')) }}</strong>
-        </div>
-        <div class="assinatura">
-            <span class="assinatura-linha"></span>
-            Dr.ª <strong>FERNANDA LÓREN FERREIRA SANTOS</strong>
-        </div>
-        <div class="testemunhas-section">
-            <p class="no-indent testemunhas-titulo"><strong>Testemunhas:</strong></p>
-            <div class="testemunha">
-                <p class="no-indent testemunha-linha">1. _________________________________________________________ R.G.:</p>
-            </div>
-            <div class="testemunha">
-                <p class="no-indent testemunha-linha">2. _________________________________________________________ R.G.:</p>
-            </div>
+            <p>{{ $local_emissao }}, {{ $data_emissao }}.</p> 
+            <br><br>
+            <p>_________________________________________</p>
+            <p>
+                <strong>FERNANDA LÓREN FERREIRA SANTOS</strong><br>
+                <strong>OAB/MG 187.526</strong>
+            </p> 
         </div>
     </main>
 </body>
