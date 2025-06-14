@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
-use Illuminate\Support\Facades\Log; // Adicionado para debug, se necessário
+use Illuminate\Support\Facades\Log;
 
 class ACLMiddleware
 {
@@ -20,63 +20,58 @@ class ACLMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // 1) Carrega o usuário autenticado junto com suas permissões diretas
-        // e as permissões associadas às suas roles (funções/papéis).
         $user = Auth::user();
 
-        // Se não houver usuário autenticado, prossegue para o próximo middleware
-        // (provavelmente o middleware 'auth' tratará disso, redirecionando para o login).
         if (!$user) {
             return $next($request);
         }
 
-        // Eager load das relações para otimizar.
+        $routeName = Route::currentRouteName();
+
+        // --- INÍCIO DA ALTERAÇÃO ---
+        // Lista de rotas que serão ignoradas pela verificação de permissão.
+        $routesToIgnore = [
+            'processes.documents.show.aposentadoria.form',
+            'processes.documents.generate.aposentadoria',
+            'processes.documents.show.procuracao.form',
+            'processes.documents.generate.procuracao',
+            'processes.documents.show.declaracao.form',
+            'processes.documents.generate.declaracao',
+            'processes.documents.show.pedido-medico.form',
+            'processes.documents.generate.pedido-medico',
+            'processes.payments.receipt',
+            'process-documents.download',
+        ];
+
+        // Se a rota atual estiver na lista para ignorar, permite o acesso imediatamente.
+        if (in_array($routeName, $routesToIgnore, true)) {
+            return $next($request);
+        }
+        // --- FIM DA ALTERAÇÃO ---
+
         $user->load(['permissions', 'roles.permissions']);
         
-        // 2) Verifica se o usuário possui alguma role com o atributo 'level' maior que 7 (ex: Admin).
-        // Se sim, tem acesso irrestrito e a requisição prossegue.
-        if ($user->roles->contains(fn($role) => $role->level > 7)) { // Ajuste o nível conforme sua lógica de Admin
+        if ($user->roles->contains(fn($role) => $role->level > 7)) {
             return $next($request);
         }
 
-        // 3) Obtém o nome da rota atual.
-        $routeName = Route::currentRouteName();
-
-        // Se a rota não tiver nome, não podemos verificar a permissão baseada em nome.
-        // Decida como tratar isso: permitir, negar, ou logar.
-        // Por agora, se não houver nome de rota, vamos permitir (ou você pode negar por segurança).
         if (!$routeName) {
-            // Log::warning('ACLMiddleware: Rota sem nome acessada: ' . $request->path());
-            return $next($request); // Ou abort(403) ou redirect()->back()
+            return $next($request);
         }
 
-        // 4) Agrega todas as permissões do usuário.
         $directPermissions = $user->permissions->pluck('name')->all();
         $permissionsViaRoles = $user->roles
             ->flatMap(fn($role) => $role->permissions->pluck('name'))
             ->all();
         $allPermissions = array_unique(array_merge($directPermissions, $permissionsViaRoles));
 
-        // 5) Verifica se o nome da rota atual (ou a permissão associada) está na lista de permissões.
-        // O seeder cria permissões como 'route.nome.da.rota'.
-        // Ajuste aqui se o seu padrão de nome de permissão for diferente.
-        $requiredPermission = $routeName; // Assumindo que as permissões de rota são prefixadas com 'route.'
+        $requiredPermission = $routeName;
 
         if (!in_array($requiredPermission, $allPermissions, true)) {
-            // Log para debug:
-            // Log::warning("ACLMiddleware: Acesso negado para o usuário {$user->id} ({$user->email}) à rota '{$routeName}' (permissão necessária: '{$requiredPermission}'). Permissões do usuário: " . implode(', ', $allPermissions));
-            // Log::info("ACLMiddleware: URL anterior: " . url()->previous());
-            // Log::info("ACLMiddleware: URL atual: " . $request->fullUrl());
-
-            // Redireciona para a página anterior.
-            // Se não houver "página anterior" (ex: acesso direto à URL),
-            // o Laravel pode redirecionar para a rota 'HOME' (geralmente /dashboard).
-            // Certifique-se de que a mensagem 'error' é exibida no template para onde o usuário for redirecionado.
             return redirect()->back()
                 ->with('error', 'Você não tem permissão para acessar esta página.');
         }
 
-        // 6) Disponibiliza a lista completa de permissões do usuário no objeto Request (opcional).
         $request->attributes->set('permissions', $allPermissions);
 
         return $next($request);
