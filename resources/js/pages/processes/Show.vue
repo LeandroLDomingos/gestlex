@@ -1078,6 +1078,16 @@ const totalPaymentsAmount = computed(() => {
                                                 ]">
                                                 {{ payment_item.status_label || getPaymentStatusLabel(payment_item.status) }}
                                             </Badge>
+                                            <a v-if="payment_item.status === 'paid'" :href="routeHelper('processes.payments.receipt', { processo: process.id, pagamento: payment_item.id })" target="_blank">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    class="h-7 w-7"
+                                                    title="Gerar Recibo"
+                                                >
+                                                    <Download class="h-3.5 w-3.5 text-gray-500 hover:text-green-600" />
+                                                </Button>
+                                            </a>
                                             <Button
                                                 v-if="!isArchived"
                                                 variant="ghost"

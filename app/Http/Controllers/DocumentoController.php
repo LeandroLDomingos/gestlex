@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Process;
+use App\Models\ProcessPayment;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -338,5 +339,44 @@ class DocumentoController extends Controller
             return substr($value, 0, 2) . '.' . substr($value, 2, 3) . '-' . substr($value, 5, 3);
         }
         return $value;
+    }
+    public function gerarReciboPdf(Process $processo, ProcessPayment $pagamento)
+    {
+        $cliente = $processo->contact;
+
+        // Garante que o pagamento pertence ao processo, por segurança.
+        if ($pagamento->process_id !== $processo->id || !$cliente) {
+            abort(404, 'Pagamento ou cliente não encontrado neste processo.');
+        }
+
+        $valor = $pagamento->total_amount;
+        // Verifica se há juros e soma ao valor principal.
+        if (!empty($pagamento->interest_amount) && is_numeric($pagamento->interest_amount)) {
+            $valor += (float) $pagamento->interest_amount;
+        }
+        $valorFormatado = 'R$ ' . number_format($valor, 2, ',', '.');
+
+        $formatter = new NumberFormatter('pt_BR', NumberFormatter::SPELLOUT);
+        $valorPorExtenso = ucfirst($formatter->format($valor)). ' reais';
+
+        // Define o texto "referente a"
+        $referencia = 'Honorários Advocatícios'; // Padrão
+        // Usa a data do pagamento efetivo, se houver. Senão, usa a data atual.
+        $dataRecibo = $pagamento->down_payment_date
+            ? Carbon::parse($pagamento->down_payment_date)
+            : Carbon::now();
+
+        $dados = [
+            'valor_formatado' => $valorFormatado,
+            'nome_cliente' => $cliente->name ?: $cliente->business_name,
+            'valor_por_extenso' => $valorPorExtenso,
+            'referencia' => $referencia,
+            'local_emissao' => 'Lagoa Santa',
+            'data_emissao' => $dataRecibo->locale('pt_BR')->translatedFormat('d \d\e F \d\e Y'),
+        ];
+
+        $pdf = Pdf::loadView('pdfs.recibo', $dados);
+        $nomeArquivo = "recibo-" . Str::slug($cliente->name) . "-pgto-" . $pagamento->id . ".pdf";
+        return $pdf->stream($nomeArquivo);
     }
 }

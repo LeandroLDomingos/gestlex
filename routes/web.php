@@ -130,6 +130,8 @@ Route::middleware([ACLMiddleware::class, 'auth', 'verified'])->group(function ()
         Route::post('/pedido-medico/gerar', [DocumentoController::class, 'gerarPedidoMedicoPdf'])
             ->name('generate.pedido-medico');
     });
+    Route::get('/processes/{processo}/payments/{pagamento}/receipt', [DocumentoController::class, 'gerarReciboPdf'])
+    ->name('processes.payments.receipt');
 });
 
 
