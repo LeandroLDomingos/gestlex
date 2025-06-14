@@ -30,7 +30,7 @@
 <html lang="pt-BR">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>CONTRATO APOSENTADORIA</title>
+    <title>Contrato</title>
     <style>
         @page {
             margin: 150px 80px 100px 80px; /* Topo, Direita, Baixo, Esquerda */
@@ -102,7 +102,8 @@
         <div class="footer-content">
             <table>
                 <tr>
-                    <td>@if(get_icon_base64_data('phone-icon.png'))<img src="{{ get_icon_base64_data('phone-icon.png') }}" alt="Telefone">@endif (31) 98980-3313</td>
+                    <td>@if(get_icon_base64_data('phone-icon.png'))<img src="{{ get_icon_base64_data('phone-icon.png') }}" alt="Telefone">@endif 
+                    (31) 98980-3313</td>
                 </tr>
                 <tr>
                     <td>@if(get_icon_base64_data('instagram-icon.png'))<img src="{{ get_icon_base64_data('instagram-icon.png') }}" alt="Instagram">@endif @fernandaloren_</td>
@@ -122,9 +123,7 @@
         <h3>CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS</h3>
         <br>
         <br>
-        <p>
-            Pelo presente instrumento particular, que entre si fazem, de um lado como <strong>CLIENTE/CONTRATANTE, {{ $qualificacao_outorgante }}</strong>, e, de outro lado, como ADVOGADA, assim doravante indicada, Dr.ª <strong>FERNANDA LÓREN FERREIRA SANTOS</strong>, brasileira, casada, Advogada regularmente inscrita na Ordem dos Advogados do Brasil sob o nº 187.526, estabelecida profissionalmente á Rua Coronel Durães, nº 170, Sala 09, Bela Vista, (31) 98980-3313, CEP 33.239-206, Lagoa Santa/MG, ajustam entre si, com fulcro no artigo 22 da Lei nº 8.906/94, mediante as seguintes cláusulas e condições:
-        </p>
+        <p>{!! nl2br($paragrafo_completo) !!}</p>
 
         {{-- As cláusulas agora usam as variáveis do controller --}}
         <p><strong>Cláusula Primeira</strong> – {!! nl2br(e($clausula_1)) !!}</p>

@@ -700,7 +700,7 @@ const contractTypes = ref<ContractOption[]>([
     },
     {
         id: 'aposentadoria',
-        label: 'Contrato de Aposentadoria',
+        label: 'Contrato',
         action: (process) => {
             const url = routeHelper('processes.documents.show.aposentadoria.form', { processo: process.id });
             window.open(url, '_self');

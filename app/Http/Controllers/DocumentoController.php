@@ -19,9 +19,13 @@ class DocumentoController extends Controller
      */
     public function showAposentadoriaForm(Process $processo)
     {
+        $qualificacaoOutorgante = $this->getQualificacaoCompleta($processo->contact);
+        $paragrafoAberturaDefault = "Pelo presente instrumento particular, que entre si fazem, de um lado como <strong>CLIENTE/CONTRATANTE</strong>, {$qualificacaoOutorgante}";
+
         return Inertia::render('Documents/AposentadoriaForm', [
             'process' => $processo->load('contact', 'payments'),
             'clausulaPagamento' => $this->getPaymentClauseText($processo),
+            'paragrafoAberturaDefault' => $paragrafoAberturaDefault,
         ]);
     }
 
@@ -36,6 +40,7 @@ class DocumentoController extends Controller
         }
 
         $validatedData = $request->validate([
+            'paragrafo_abertura' => 'required|string',
             'clausula_1' => 'required|string',
             'clausula_2' => 'required|string',
             'clausula_3' => 'required|string',
@@ -47,9 +52,21 @@ class DocumentoController extends Controller
             'texto_final' => 'required|string',
         ]);
 
+        // --- LÓGICA DE RECONSTRUÇÃO DO PARÁGRAFO ---
+    	// 1. O texto que o usuário editou
+        $parte1_editavel = $validatedData['paragrafo_abertura'];
+
+        // 3. O texto fixo da advogada
+        $parte3_fixa_advogada = ", e, de outro lado, como ADVOGADA, assim doravante indicada, Dr.ª <strong>FERNANDA LÓREN FERREIRA SANTOS</strong>, brasileira, casada, Advogada regularmente inscrita na Ordem dos Advogados do Brasil sob o nº 187.526, estabelecida profissionalmente á Rua Coronel Durães, nº 170, Sala 09, Bela Vista, (31) 98980-3313, CEP 33.239-206, Lagoa Santa/MG, ajustam entre si, com fulcro no artigo 22 da Lei nº 8.906/94, mediante as seguintes cláusulas e condições:";
+
+        // Juntamos tudo em uma única variável para o PDF
+        $paragrafo_completo = $parte1_editavel . $parte3_fixa_advogada;
+
+
+
         $dados = array_merge($validatedData, [
             'outorgante' => $outorgante,
-            'qualificacao_outorgante' => $this->getQualificacaoCompleta($outorgante),
+            'paragrafo_completo' => $paragrafo_completo,
             'local_emissao' => 'Lagoa Santa/MG',
             'data_emissao' => Carbon::now()->locale('pt_BR')->translatedFormat('d \d\e F \d\e Y'),
         ]);
@@ -97,36 +114,28 @@ class DocumentoController extends Controller
 
 
     // --- PROCURAÇÃO ---
-    
-    /**
-     * Mostra o formulário para preencher a procuração.
-     */
     public function showProcuracaoForm(Process $processo)
     {
         return Inertia::render('Documents/ProcuracaoForm', [
             'process' => $processo->load('contact'),
-            'qualificacaoOutorgante' => $this->getQualificacaoCompleta($processo->contact),
+            'qualificacaoOutorgante' => $this->getQualificacaoCompleta($processo->contact) . '.',
         ]);
     }
 
-    /**
-     * Gera o PDF da procuração a partir dos dados do formulário.
-     */
     public function gerarProcuracaoPdf(Request $request, Process $processo)
     {
+        // ADICIONADO PARA DEBUG: Interrompe a execução e mostra todos os dados recebidos.
+        // dd($request->all());
+
         $outorgante = $processo->contact;
         if (!$outorgante) {
             abort(404, 'Cliente principal não está associado a este processo.');
         }
 
-        // Validação completa para os campos do formulário da procuração
         $validatedData = $request->validate([
             'outorgante_qualificacao' => 'required|string',
-            'outorgados_qualificacao' => 'required|string',
             'poderes' => 'required|string',
-            'poderes_especificos' => 'required|string',
         ]);
-
         $dados = array_merge($validatedData, [
             'local_emissao' => 'Lagoa Santa/MG',
             'data_emissao' => Carbon::now()->locale('pt_BR')->translatedFormat('d \d\e F \d\e Y'),
@@ -134,7 +143,7 @@ class DocumentoController extends Controller
         ]);
 
         $pdf = Pdf::loadView('pdfs.procuracao', $dados);
-        $nomeArquivo = "procuracao-" . Str::slug($outorgante->name) . ".pdf";
+        $nomeArquivo = "procuracao" . Str::slug($outorgante->name) . ".pdf";
         return $pdf->stream($nomeArquivo);
     }
 
@@ -172,7 +181,7 @@ class DocumentoController extends Controller
 
         // 2. Identifica, conta e descreve as parcelas
         $installmentPayments = $payments->where('value_of_installment', '>', 0)
-                                        ->where(fn($q) => $q->where('down_payment_amount', 0)->orWhereNull('down_payment_amount'));
+            ->where(fn($q) => $q->where('down_payment_amount', 0)->orWhereNull('down_payment_amount'));
 
         if ($installmentPayments->isNotEmpty()) {
             $firstInstallment = $installmentPayments->first();
@@ -181,9 +190,9 @@ class DocumentoController extends Controller
 
             $installmentAmountFormatted = number_format($installmentValue, 2, ',', '.');
             $dueDate = Carbon::parse($firstInstallment->first_installment_due_date)->locale('pt_BR');
-            
+
             $prefix = $downPayment ? "e o saldo remanescente em" : "em";
-            
+
             $paymentDescriptions[] = sprintf(
                 "%s %d parcelas de R$ %s, sendo a primeira com vencimento em %s e as demais no mesmo dia nos meses subsequentes",
                 $prefix,
@@ -192,7 +201,7 @@ class DocumentoController extends Controller
                 $dueDate->translatedFormat('d \d\e F \d\e Y')
             );
         }
-        
+
         $mainClause .= " " . implode(', ', $paymentDescriptions) . ".";
 
         $successClause = 'Serão devidos ainda, a título de honorários de êxito, o importe de 30% (trinta por cento) dos valores que vier a receber a título de atrasados, além do correspondente a 02 (dois) salários de benefício.';
@@ -211,7 +220,7 @@ class DocumentoController extends Controller
 
         if ($contato->type === 'physical') {
             return sprintf(
-                '%s, %s, %s, %s, portador do RG %s e inscrito no CPF sob o nº %s, residente e domiciliado na %s, nº %s%s, %s, %s/%s, CEP %s.',
+                '%s, %s, %s, %s, portador do RG %s e inscrito no CPF sob o nº %s, residente e domiciliado na %s, nº %s%s, %s, %s/%s, CEP %s',
                 $nome,
                 $contato->nationality_full_name ?? 'nacionalidade não informada',
                 $contato->marital_status_label ?? 'estado civil não informado',
@@ -228,7 +237,7 @@ class DocumentoController extends Controller
             );
         }
         return sprintf(
-            '%s, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº %s, com sede na %s, nº %s%s, %s, %s/%s, CEP %s.',
+            '%s, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº %s, com sede na %s, nº %s%s, %s, %s/%s, CEP %s',
             strtoupper($contato->business_name),
             $cpfCnpjFormatado,
             $contato->address ?? 'endereço não informado',
@@ -246,7 +255,7 @@ class DocumentoController extends Controller
         $qualificacao = $this->getQualificacaoCompleta($processo->contact, false);
         return "{$qualificacao}, nos termos da Lei 1.060 de 05 de fevereiro de 1950 e suas modificações subsequentes, entre estas a Lei 7.115 de 29 de agosto de 1983 e Lei 7.510 de 04 de julho de 1986, sujeitando-se às sanções da esfera administrativa, cível e criminal previstas na legislação da República Federativa do Brasil, DECLARA ser pobre na acepção jurídica da palavra, não possuindo, portanto, condições, meios ou recursos de arcar com as despesas processuais, honorários advocatícios e demais ônus judiciais inerentes ao presente feito, sem prejuízo do sustento próprio e de seus familiares. É a expressão da verdade.";
     }
-    
+
     private function formatCpfCnpj($value)
     {
         $value = preg_replace('/[^0-9]/', '', (string) $value);
@@ -263,7 +272,7 @@ class DocumentoController extends Controller
     {
         $value = preg_replace('/[^0-9]/', '', (string) $value);
         if (strlen($value) === 8) {
-            return substr($value, 0, 2) . '.' . substr($value, 2, 3) . '-'. substr($value, 5, 3);
+            return substr($value, 0, 2) . '.' . substr($value, 2, 3) . '-' . substr($value, 5, 3);
         }
         return $value;
     }

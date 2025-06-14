@@ -16,12 +16,17 @@ const props = defineProps({
     clausulaPagamento: {
         type: String,
         required: true,
+    },
+    paragrafoAberturaDefault: {
+        type: String,
+        required: true,
     }
 });
 
 // Usamos um objeto reativo simples para os dados do formulário,
 // em vez do useForm do Inertia para esta submissão.
 const form = reactive({
+    paragrafo_abertura: props.paragrafoAberturaDefault,
     clausula_1: 'A Advogada contratada compromete-se, em cumprimento ao mandato recebido a requerer administrativamente Aposentadoria e ajuste de pendências no CNIS, junto ao INSS e solicitar Certidão de Contagem de Tempo e PPP junto a Prefeitura Municipal de Lagoa Santa.',
     clausula_2: 'O CONTRATANTE reconhece já haver recebido a orientação preventiva comportamental e jurídica para a consecução dos serviços, se compromete a fornecer à ADVOGADA CONTRATADA os documentos e meios necessários à comprovação processual do seu pretendido direito, bem como, pagará as despesas extrajudiciais que decorrerem da causa, caso haja, nada havendo adiantado para esse fim.',
     clausula_3: props.clausulaPagamento,
@@ -39,6 +44,7 @@ const csrfToken = usePage().props.csrf_token;
 </script>
 
 <template>
+
     <Head title="Gerar Contrato de Aposentadoria" />
 
     <AppLayout>
@@ -50,7 +56,8 @@ const csrfToken = usePage().props.csrf_token;
             <!-- CORREÇÃO: O formulário agora é um formulário HTML padrão -->
             <!-- O 'action' aponta para a rota de geração do PDF -->
             <!-- O 'target="_blank"' faz com que o resultado (o PDF) abra numa nova aba -->
-            <form :action="route('processes.documents.generate.aposentadoria', process.id)" method="POST" target="_blank">
+            <form :action="route('processes.documents.generate.aposentadoria', process.id)" method="POST"
+                target="_blank">
                 <!-- Token CSRF do Laravel é necessário para submissões POST -->
                 <input type="hidden" name="_token" :value="csrfToken">
 
@@ -59,6 +66,12 @@ const csrfToken = usePage().props.csrf_token;
                         <CardTitle>Preencha as Cláusulas do Contrato</CardTitle>
                     </CardHeader>
                     <CardContent class="space-y-6">
+                        <div class="space-y-2">
+                            <Label for="paragrafo_abertura">Texto de Abertura (antes da qualificação do cliente)</Label>
+                            <Textarea id="paragrafo_abertura" v-model="form.paragrafo_abertura"
+                                name="paragrafo_abertura" rows="4" />
+                        </div>
+
                         <!-- Cláusula 1 -->
                         <div class="space-y-2">
                             <Label for="clausula_1">Cláusula Primeira (Objeto do Contrato)</Label>
@@ -70,7 +83,7 @@ const csrfToken = usePage().props.csrf_token;
                             <Label for="clausula_2">Cláusula Segunda (Obrigações)</Label>
                             <Textarea id="clausula_2" v-model="form.clausula_2" name="clausula_2" rows="4" />
                         </div>
-                        
+
                         <!-- Cláusula 3 (Honorários) - Pré-preenchida -->
                         <div class="space-y-2">
                             <Label for="clausula_3">Cláusula Terceira (Honorários)</Label>
@@ -80,7 +93,8 @@ const csrfToken = usePage().props.csrf_token;
                         <!-- Outras cláusulas -->
                         <div class="space-y-2">
                             <Label for="paragrafo_primeiro_clausula_3">Parágrafo Primeiro (Quitação)</Label>
-                            <Textarea id="paragrafo_primeiro_clausula_3" v-model="form.paragrafo_primeiro_clausula_3" name="paragrafo_primeiro_clausula_3" rows="2" />
+                            <Textarea id="paragrafo_primeiro_clausula_3" v-model="form.paragrafo_primeiro_clausula_3"
+                                name="paragrafo_primeiro_clausula_3" rows="2" />
                         </div>
                         <div class="space-y-2">
                             <Label for="clausula_4">Cláusula Quarta (Medidas Adicionais)</Label>

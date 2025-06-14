@@ -30,7 +30,7 @@
 <html lang="pt-BR">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>CONTRATO APOSENTADORIA</title>
+    <title>Declaração de Hipossuficiência</title>
     <style>
         @page {
             margin: 150px 80px 100px 80px; /* Topo, Direita, Baixo, Esquerda */
@@ -102,7 +102,8 @@
         <div class="footer-content">
             <table>
                 <tr>
-                    <td>@if(get_icon_base64_data('phone-icon.png'))<img src="{{ get_icon_base64_data('phone-icon.png') }}" alt="Telefone">@endif (31) 98980-3313</td>
+                    <td>@if(get_icon_base64_data('phone-icon.png'))<img src="{{ get_icon_base64_data('phone-icon.png') }}" alt="Telefone">@endif 
+                    (31) 98980-3313</td>
                 </tr>
                 <tr>
                     <td>@if(get_icon_base64_data('instagram-icon.png'))<img src="{{ get_icon_base64_data('instagram-icon.png') }}" alt="Instagram">@endif @fernandaloren_</td>
